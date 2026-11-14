@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MoveInMate AI — Roadmap 4 thành viên</title>
+  <meta name="description" content="Roadmap triển khai MVP MoveInMate AI trong 7 ngày cho nhóm 4 thành viên." />
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --text: #172033;
+      --muted: #667085;
+      --line: #dfe6ef;
+      --brand: #3157d5;
+      --brand-2: #6c4ce7;
+      --success: #087a55;
+      --warning: #a15c00;
+      --danger: #b42318;
+      --tv1: #3157d5;
+      --tv2: #7c3aed;
+      --tv3: #07845b;
+      --tv4: #c24b14;
+      --radius: 18px;
+      --shadow: 0 16px 40px rgba(29, 41, 57, .08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 10% 0%, rgba(49,87,213,.09), transparent 30%),
+        radial-gradient(circle at 90% 5%, rgba(124,58,237,.08), transparent 28%),
+        var(--bg);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.62;
+    }
+
+    a { color: inherit; }
+    button { font: inherit; }
+    .container { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+
+    .hero { padding: 56px 0 32px; }
+    .hero-grid { display: grid; grid-template-columns: 1.45fr .75fr; gap: 24px; align-items: stretch; }
+    .hero-main, .hero-side, .panel {
+      background: rgba(255,255,255,.92);
+      border: 1px solid rgba(223,230,239,.9);
+      box-shadow: var(--shadow);
+      border-radius: 24px;
+    }
+    .hero-main { padding: 38px; position: relative; overflow: hidden; }
+    .hero-main::after {
+      content: "";
+      position: absolute;
+      width: 260px; height: 260px; border-radius: 50%;
+      right: -100px; top: -120px;
+      background: linear-gradient(135deg, rgba(49,87,213,.2), rgba(124,58,237,.08));
+    }
+    .eyebrow {
+      display: inline-flex; gap: 8px; align-items: center;
+      padding: 7px 11px; border-radius: 999px;
+      background: #eef2ff; color: #3448a4;
+      font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    }
+    h1 { margin: 18px 0 14px; max-width: 760px; font-size: clamp(34px, 5vw, 64px); line-height: 1.03; letter-spacing: -.045em; }
+    .lede { margin: 0; max-width: 760px; color: var(--muted); font-size: 18px; }
+    .hero-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+    .tag { padding: 7px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; font-size: 13px; font-weight: 700; }
+
+    .hero-side { padding: 26px; display: grid; gap: 13px; align-content: center; }
+    .metric { padding: 16px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 16px; }
+    .metric strong { display: block; font-size: 25px; line-height: 1; margin-bottom: 7px; }
+    .metric span { color: var(--muted); font-size: 13px; }
+
+    .toolbar {
+      position: sticky; top: 0; z-index: 20;
+      border-top: 1px solid rgba(223,230,239,.7);
+      border-bottom: 1px solid rgba(223,230,239,.95);
+      background: rgba(244,247,251,.88); backdrop-filter: blur(14px);
+    }
+    .toolbar-inner { display: flex; gap: 8px; padding: 12px 0; overflow-x: auto; align-items: center; }
+    .nav-btn, .print-btn {
+      white-space: nowrap; padding: 9px 13px; border-radius: 11px;
+      border: 1px solid var(--line); background: white; color: #344054;
+      cursor: pointer; font-weight: 750; font-size: 13px;
+    }
+    .nav-btn:hover { border-color: #a9b8e8; color: var(--brand); }
+    .print-btn { margin-left: auto; background: var(--text); color: white; border-color: var(--text); }
+
+    main { padding: 24px 0 64px; }
+    section { scroll-margin-top: 76px; margin: 22px 0; }
+    .panel { padding: 28px; }
+    .section-head { display: flex; gap: 16px; justify-content: space-between; align-items: end; margin-bottom: 20px; }
+    .section-head h2 { margin: 0; font-size: clamp(25px, 3vw, 36px); letter-spacing: -.03em; }
+    .section-head p { margin: 5px 0 0; color: var(--muted); max-width: 700px; }
+    .section-no { font-size: 13px; color: var(--brand); font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
+
+    .notice { padding: 16px 18px; border-radius: 14px; border: 1px solid #bfcef6; background: #f2f5ff; color: #263979; }
+    .notice strong { color: #18265a; }
+    .notice.warning { border-color: #f2d29b; background: #fff9ed; color: #784507; }
+
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 13px; }
+    .card { border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; background: var(--surface); }
+    .card h3, .card h4 { margin: 0 0 9px; }
+    .card p { color: var(--muted); margin: 0; }
+    .member { position: relative; overflow: hidden; }
+    .member::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--member); }
+    .member .avatar { width: 42px; height: 42px; display: grid; place-items: center; color: white; border-radius: 13px; background: var(--member); font-weight: 900; margin-bottom: 14px; }
+    .member small { display: block; color: var(--muted); margin-top: 9px; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; }
+    table { width: 100%; border-collapse: collapse; min-width: 820px; background: white; }
+    th, td { text-align: left; vertical-align: top; padding: 13px 14px; border-bottom: 1px solid var(--line); }
+    th { position: sticky; top: 0; background: #f7f9fc; font-size: 12px; text-transform: uppercase; letter-spacing: .055em; color: #475467; }
+    tr:last-child td { border-bottom: 0; }
+    td strong { color: #26324b; }
+    .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 850; background: #eef2f6; color: #475467; }
+    .pill.p0 { color: #9d2218; background: #feeceb; }
+    .pill.p1 { color: #8a4a00; background: #fff1d6; }
+    .pill.ai { color: #5332a5; background: #f0eaff; }
+
+    .roadmap-tabs { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 18px; }
+    .tab {
+      border: 1px solid var(--line); background: white; color: var(--muted);
+      padding: 10px 15px; border-radius: 12px; font-weight: 800; cursor: pointer;
+    }
+    .tab.active { color: white; border-color: var(--tab-color); background: var(--tab-color); }
+    .roadmap { display: none; }
+    .roadmap.active { display: block; }
+    .roadmap-header { display: grid; grid-template-columns: 1fr .8fr; gap: 16px; margin-bottom: 18px; }
+    .role-box { border-left: 5px solid var(--member); background: var(--surface-2); border-radius: 14px; padding: 18px; }
+    .role-box h3 { margin: 0 0 6px; font-size: 24px; }
+    .role-box p { margin: 0; color: var(--muted); }
+    .output-box { background: #172033; color: white; border-radius: 14px; padding: 18px; }
+    .output-box h4 { margin: 0 0 8px; }
+    .output-box ul { margin: 0; padding-left: 18px; color: #dce4f3; }
+
+    .timeline { display: grid; gap: 11px; }
+    .day {
+      display: grid; grid-template-columns: 100px 1fr; gap: 15px;
+      border: 1px solid var(--line); border-radius: 16px; padding: 16px; background: white;
+    }
+    .day-label { font-weight: 900; color: var(--member); }
+    .day-label small { display: block; color: var(--muted); font-weight: 600; }
+    .tasks { display: grid; grid-template-columns: 1.25fr .75fr; gap: 14px; }
+    .tasks h4 { margin: 0 0 6px; }
+    .tasks ul { margin: 0; padding-left: 19px; }
+    .collab { padding: 11px 13px; border-radius: 12px; background: var(--surface-2); border: 1px dashed #c8d2e1; font-size: 13px; }
+    .collab b { color: var(--member); }
+
+    .criteria { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; margin-top: 16px; }
+    .criteria .card ul { padding-left: 18px; margin: 8px 0 0; }
+    .criteria .card:nth-child(1) { border-top: 4px solid var(--brand); }
+    .criteria .card:nth-child(2) { border-top: 4px solid var(--success); }
+    .criteria .card:nth-child(3) { border-top: 4px solid var(--warning); }
+
+    .checklist { list-style: none; padding: 0; margin: 0; display: grid; gap: 9px; }
+    .checklist li { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+    .checklist input { margin-top: 5px; accent-color: var(--brand); }
+    .checklist span { color: #344054; }
+
+    .score-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 16px; }
+    .score { display: grid; grid-template-columns: 1fr 80px; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .score:last-child { border-bottom: 0; }
+    .score strong { display: block; }
+    .score small { color: var(--muted); }
+    .weight { text-align: center; padding: 8px; border-radius: 10px; background: #eef2ff; color: #3448a4; font-weight: 900; }
+
+    pre {
+      margin: 0; padding: 18px; overflow-x: auto; border-radius: 15px;
+      color: #dce6fa; background: #101828; border: 1px solid #293752;
+      font: 13px/1.6 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    code { font-family: "SFMono-Regular", Consolas, monospace; }
+    details { border: 1px solid var(--line); border-radius: 14px; background: white; overflow: hidden; }
+    details + details { margin-top: 10px; }
+    summary { cursor: pointer; font-weight: 850; padding: 15px 17px; background: var(--surface-2); }
+    details > div { padding: 17px; }
+
+    footer { padding: 28px 0 48px; color: var(--muted); text-align: center; font-size: 13px; }
+    .muted { color: var(--muted); }
+    .mt { margin-top: 16px; }
+
+    @media (max-width: 900px) {
+      .hero-grid, .roadmap-header, .score-grid { grid-template-columns: 1fr; }
+      .grid-4 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .criteria { grid-template-columns: 1fr; }
+      .tasks { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) {
+      .container { width: min(100% - 20px, 1180px); }
+      .hero { padding-top: 20px; }
+      .hero-main, .hero-side, .panel { border-radius: 18px; }
+      .hero-main, .panel { padding: 21px; }
+      .grid-2, .grid-4 { grid-template-columns: 1fr; }
+      .day { grid-template-columns: 1fr; }
+      .print-btn { display: none; }
+    }
+    @media print {
+      body { background: white; font-size: 11px; }
+      .toolbar, .roadmap-tabs, footer { display: none !important; }
+      .container { width: 100%; }
+      .hero { padding: 0 0 14px; }
+      .hero-main, .hero-side, .panel { box-shadow: none; border-radius: 10px; }
+      .hero-main { padding: 22px; }
+      h1 { font-size: 34px; }
+      section { break-inside: avoid; margin: 12px 0; }
+      .panel { padding: 18px; }
+      .roadmap { display: block !important; break-before: page; }
+      .roadmap:first-of-type { break-before: auto; }
+      .day, .card, details { break-inside: avoid; }
+      details > div { display: block !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="container hero-grid">
+      <div class="hero-main">
+        <span class="eyebrow">VHR-16 · MVP Delivery Playbook</span>
+        <h1>MoveInMate AI<br/>Roadmap 4 thành viên</h1>
+        <p class="lede">Kế hoạch triển khai song song trong 7 ngày theo vertical slice: mỗi thành viên sở hữu một tính năng hoàn chỉnh từ dữ liệu, AI, backend, frontend đến kiểm thử và bàn giao.</p>
+        <div class="hero-tags">
+          <span class="tag">AI Agent</span><span class="tag">RAG</span><span class="tag">HITL</span>
+          <span class="tag">FastAPI</span><span class="tag">Next.js PWA</span><span class="tag">PostgreSQL</span>
+        </div>
+      </div>
+      <aside class="hero-side">
+        <div class="metric"><strong>7 ngày</strong><span>Thời gian từ chốt contract đến code freeze</span></div>
+        <div class="metric"><strong>4 vertical slices</strong><span>Mỗi người làm AI + backend + frontend + test</span></div>
+        <div class="metric"><strong>2 lần đồng bộ/ngày</strong><span>Đầu ngày chốt việc, cuối ngày demo sản phẩm chạy</span></div>
+      </aside>
+    </div>
+  </header>
+
+  <nav class="toolbar">
+    <div class="container toolbar-inner">
+      <button class="nav-btn" data-target="overview">Tổng quan</button>
+      <button class="nav-btn" data-target="dependency">Phối hợp</button>
+      <button class="nav-btn" data-target="roadmaps">Roadmap</button>
+      <button class="nav-btn" data-target="quality">Chất lượng</button>
+      <button class="nav-btn" data-target="handover">Bàn giao</button>
+      <button class="nav-btn" data-target="release">Release</button>
+      <button class="print-btn" onclick="window.print()">In / Xuất PDF</button>
+    </div>
+  </nav>
+
+  <main class="container">
+    <section id="overview" class="panel">
+      <div class="section-head">
+        <div><div class="section-no">01 · Operating model</div><h2>Hai lớp trách nhiệm</h2><p>Vertical slice quyết định sản phẩm mỗi người bàn giao; vai trò xuyên suốt quyết định ai giữ chuẩn chung.</p></div>
+      </div>
+      <div class="notice"><strong>Quy tắc:</strong> “Phụ trách chính” nghĩa là đặt chuẩn, điều phối và chịu trách nhiệm đầu ra — không có nghĩa làm thay người khác. Mỗi module phải có đúng một owner và ít nhất một reviewer.</div>
+      <div class="grid-4 mt">
+        <article class="card member" style="--member:var(--tv1)"><div class="avatar">1</div><h3>TV1 · Onboarding</h3><p>Agent tạo checklist cá nhân hóa, profile/checklist API, giao diện onboarding.</p><small>Vai trò chung: Integration Lead</small></article>
+        <article class="card member" style="--member:var(--tv2)"><div class="avatar">2</div><h3>TV2 · Knowledge</h3><p>RAG, embedding, chunking, citation, ingestion/query và giao diện chat.</p><small>Vai trò chung: Data & AI Quality Lead</small></article>
+        <article class="card member" style="--member:var(--tv3)"><div class="avatar">3</div><h3>TV3 · Service</h3><p>Phân loại ticket, định tuyến, deterministic rules và theo dõi trạng thái.</p><small>Vai trò chung: Security & DevOps Lead</small></article>
+        <article class="card member" style="--member:var(--tv4)"><div class="avatar">4</div><h3>TV4 · BQL Copilot</h3><p>Tóm tắt hồ sơ, đề xuất xử lý, HITL, dashboard duyệt và evaluation.</p><small>Vai trò chung: UX & Documentation Lead</small></article>
+      </div>
+
+      <div class="table-wrap mt">
+        <table>
+          <thead><tr><th>Hạng mục xuyên suốt</th><th>Owner</th><th>Reviewer / hỗ trợ</th><th>Đầu ra bắt buộc</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Tiến độ, scope, tích hợp</strong></td><td>TV1</td><td>TV4</td><td>Board, dependency log, bản demo cuối ngày</td></tr>
+            <tr><td><strong>Data schema, RAG, AI evaluation</strong></td><td>TV2</td><td>TV1 + TV4</td><td>Data dictionary, corpus manifest, golden set, eval report</td></tr>
+            <tr><td><strong>Database, security, Docker, deploy</strong></td><td>TV3</td><td>TV1</td><td>Migration, threat checklist, Docker Compose, URL deploy</td></tr>
+            <tr><td><strong>UI kit, báo cáo, slide, demo script</strong></td><td>TV4</td><td>Cả nhóm</td><td>Design tokens, report template, slide, video dự phòng</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="dependency" class="panel">
+      <div class="section-head">
+        <div><div class="section-no">02 · Collaboration map</div><h2>Điểm giao nhau giữa các thành viên</h2><p>Không chờ code thật: thống nhất contract ở ngày 1, sau đó phát triển với mock JSON và thay adapter khi API sẵn sàng.</p></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Công đoạn</th><th>Người thực hiện</th><th>Cần đầu vào từ</th><th>Người hỗ trợ</th><th>Người review</th><th>Điều kiện chuyển giao</th></tr></thead>
+          <tbody>
+            <tr><td>Profile → checklist</td><td><strong>TV1</strong></td><td>Schema chung từ TV1/TV3</td><td>TV2 review prompt</td><td>TV2</td><td>JSON output hợp schema, có test thiếu dữ liệu</td></tr>
+            <tr><td>Corpus → vector index</td><td><strong>TV2</strong></td><td>Tài liệu do cả nhóm cung cấp</td><td>TV1 cung cấp nghiệp vụ onboarding</td><td>TV1</td><td>Có manifest, metadata, thống kê chunk, Hit@3</td></tr>
+            <tr><td>Ticket → department</td><td><strong>TV3</strong></td><td>Taxonomy thống nhất với TV1</td><td>TV2 review prompt/eval</td><td>TV2</td><td>AI output được rule kiểm tra trước khi ghi DB</td></tr>
+            <tr><td>Hồ sơ → đề xuất BQL</td><td><strong>TV4</strong></td><td>Profile/checklist mock từ TV1</td><td>TV2 hỗ trợ rubric đánh giá</td><td>TV1</td><td>AI chỉ đề xuất; quyết định người dùng được audit</td></tr>
+            <tr><td>Auth + tenant isolation</td><td><strong>TV3</strong></td><td>Danh sách endpoint từ cả nhóm</td><td>Mỗi owner bổ sung policy module</td><td>TV1</td><td>Test hộ A không đọc/sửa dữ liệu hộ B</td></tr>
+            <tr><td>UI integration</td><td><strong>Mỗi owner</strong></td><td>UI kit từ TV4</td><td>TV4 review responsive/a11y</td><td>TV4</td><td>Loading, empty, error, success state đầy đủ</td></tr>
+            <tr><td>Deploy release</td><td><strong>TV3</strong></td><td>Build xanh từ tất cả module</td><td>TV1 giữ release checklist</td><td>TV1</td><td>Smoke test production và rollback note</td></tr>
+            <tr><td>Báo cáo + slide</td><td><strong>TV4 tổng hợp</strong></td><td>Mỗi người tự viết module mình</td><td>Cả nhóm cung cấp ảnh/evidence</td><td>TV1</td><td>Không còn placeholder, số liệu khớp demo</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="notice warning mt"><strong>Không được tạo dependency giả:</strong> frontend dùng mock ngay từ ngày 1; backend dùng request fixture; AI dùng dataset fixture. Chỉ integration test mới cần đủ hệ thống.</div>
+    </section>
+
+    <section id="roadmaps" class="panel">
+      <div class="section-head">
+        <div><div class="section-no">03 · Individual roadmaps</div><h2>Roadmap riêng cho từng thành viên</h2><p>Chọn thành viên để xem nhiệm vụ từng ngày, điểm phối hợp và đầu ra module.</p></div>
+      </div>
+      <div class="roadmap-tabs" role="tablist">
+        <button class="tab active" style="--tab-color:var(--tv1)" data-tab="tv1">TV1 · Onboarding</button>
+        <button class="tab" style="--tab-color:var(--tv2)" data-tab="tv2">TV2 · RAG</button>
+        <button class="tab" style="--tab-color:var(--tv3)" data-tab="tv3">TV3 · Service</button>
+        <button class="tab" style="--tab-color:var(--tv4)" data-tab="tv4">TV4 · BQL</button>
+      </div>
+
+      <article id="tv1" class="roadmap active" style="--member:var(--tv1)">
+        <div class="roadmap-header">
+          <div class="role-box"><h3>TV1 — Onboarding & Integration Lead</h3><p>Sở hữu luồng khai báo hồ sơ → sinh checklist → cập nhật tiến độ; giữ kiến trúc, contract và bản tích hợp chung.</p></div>
+          <div class="output-box"><h4>Đầu ra cuối cùng</h4><ul><li>Onboarding Agent + prompt versioned</li><li>Profile/checklist API và database</li><li>Form profile + checklist UI</li><li>10+ test cases và tài liệu module</li></ul></div>
+        </div>
+        <div class="timeline">
+          <div class="day"><div class="day-label">Ngày 1<small>Contract</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Chốt scope P0/P1/P2 và luồng end-to-end.</li><li>Thiết kế <code>ResidentProfile</code>, <code>ChecklistItem</code>, trạng thái workflow.</li><li>Tạo 20–30 hồ sơ giả lập, đánh dấu dữ liệu synthetic.</li><li>Dựng màn hình profile/checklist bằng mock.</li></ul></div><div class="collab"><b>Phối hợp:</b> TV3 review khóa tenant và migration; TV2 review dữ liệu đầu vào AI; TV4 cung cấp UI kit.<br/><b>Review bởi:</b> TV2.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 2<small>Agent core</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Xây graph: profile → build_checklist → guide → track.</li><li>Ép output qua schema và fallback khi model lỗi.</li><li>Viết unit test cho rule bắt buộc/không bắt buộc.</li></ul></div><div class="collab"><b>Nhận từ:</b> TV2 prompt convention.<br/><b>Hỗ trợ:</b> TV3 setup database local.<br/><b>Review bởi:</b> TV2.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 3<small>API + UI</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Hoàn thiện API tạo profile, sinh/lấy/cập nhật checklist.</li><li>Kết nối frontend với API; đủ loading/error/empty state.</li><li>Demo happy path và missing-information path.</li></ul></div><div class="collab"><b>Nhận từ:</b> TV4 component chuẩn.<br/><b>Hỗ trợ:</b> TV3 auth middleware.<br/><b>Review bởi:</b> TV4 UI, TV3 API.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 4<small>Integration</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Gắn citation link sang trợ lý RAG khi người dùng cần hướng dẫn.</li><li>Đẩy hồ sơ cần duyệt sang queue HITL của TV4.</li><li>Chạy integration test với mock adapter và API thật.</li></ul></div><div class="collab"><b>Phối hợp:</b> TV2 cho query contract; TV4 cho approval contract.<br/><b>Review bởi:</b> TV2 + TV4.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 5<small>Security</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Thêm tenant filter và audit event cho thay đổi checklist.</li><li>Test cư dân không sửa checklist người khác.</li><li>Hỗ trợ TV3 smoke test Docker/deploy.</li></ul></div><div class="collab"><b>Owner security:</b> TV3.<br/><b>TV1 cung cấp:</b> endpoint inventory và test fixture.<br/><b>Review bởi:</b> TV3.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 6<small>QA + report</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Chạy regression end-to-end toàn sản phẩm.</li><li>Chụp evidence và viết kiến trúc + agent design.</li><li>Đóng lỗi P0, xác nhận tiêu chí nghiệm thu module.</li></ul></div><div class="collab"><b>Hỗ trợ:</b> cả nhóm chạy test module.<br/><b>Review tài liệu:</b> TV4.<br/><b>Review kỹ thuật:</b> TV3.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 7<small>Release</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Code freeze, quản lý merge/release tag.</li><li>Chạy rehearsal end-to-end và chuẩn bị dữ liệu reset demo.</li><li>Chốt known limitations và phương án fallback.</li></ul></div><div class="collab"><b>Phối hợp:</b> TV3 deploy; TV4 demo script; TV2 reset vector index.<br/><b>Sign-off:</b> cả nhóm.</div></div></div>
+        </div>
+      </article>
+
+      <article id="tv2" class="roadmap" style="--member:var(--tv2)">
+        <div class="roadmap-header">
+          <div class="role-box"><h3>TV2 — RAG & Data/AI Quality Lead</h3><p>Sở hữu corpus → chunking → embedding → retrieval → citation; đặt chuẩn dữ liệu, prompt và evaluation cho toàn nhóm.</p></div>
+          <div class="output-box"><h4>Đầu ra cuối cùng</h4><ul><li>Corpus manifest và data dictionary</li><li>Ingestion/query API + RAG UI</li><li>So sánh 2 cách chunking</li><li>20–30 golden questions + eval report</li></ul></div>
+        </div>
+        <div class="timeline">
+          <div class="day"><div class="day-label">Ngày 1<small>Corpus</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Chốt nguồn tài liệu, bản quyền, version và metadata.</li><li>Tạo corpus manifest; phân biệt real/synthetic.</li><li>Định nghĩa chuẩn prompt/output AI dùng chung.</li><li>Dựng UI chat bằng response mock có citation.</li></ul></div><div class="collab"><b>Nhận từ:</b> mọi thành viên cung cấp tài liệu nghiệp vụ.<br/><b>Hỗ trợ:</b> TV1 xác nhận scope thủ tục.<br/><b>Review bởi:</b> TV1.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 2<small>Ingestion</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Làm fixed-size 500–700 tokens, overlap 80–120.</li><li>Làm heading-aware; fallback sang fixed-size với mục dài.</li><li>Index embedding 768D vào collection riêng theo model/version.</li></ul></div><div class="collab"><b>Hỗ trợ:</b> TV3 volume/config Docker.<br/><b>Review bởi:</b> TV1 kiểm tra cấu trúc nghiệp vụ.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 3<small>Retrieval</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Xây retrieval filter theo community/version/visibility.</li><li>Prompt trả lời có nguồn và từ chối khi thiếu bằng chứng.</li><li>Hoàn thiện API ingestion/query và kết nối UI.</li></ul></div><div class="collab"><b>Nhận từ:</b> TV3 auth context.<br/><b>Hỗ trợ:</b> TV4 citation component.<br/><b>Review bởi:</b> TV4 về UX tin cậy.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 4<small>Evaluation</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Tạo 20–30 golden questions có expected source.</li><li>Đo Hit@3, citation correctness, answer correctness, refusal.</li><li>So sánh chunking và chốt cấu hình production.</li></ul></div><div class="collab"><b>Hỗ trợ:</b> TV4 xây rubric/judge form; TV1 cung cấp câu hỏi onboarding.<br/><b>Review bởi:</b> TV1 + TV4.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 5<small>Safety</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Test prompt injection trong tài liệu và câu hỏi.</li><li>Test không trả tài liệu sai community.</li><li>Review prompt + schema AI của TV1, TV3, TV4.</li></ul></div><div class="collab"><b>Phối hợp:</b> TV3 security test; từng owner sửa module của mình.<br/><b>Review bởi:</b> TV3.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 6<small>Optimize</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Đo latency, số token, số chunk và lỗi retrieval.</li><li>Chốt top-k, threshold và fallback.</li><li>Viết phần RAG/chunking/evaluation của báo cáo.</li></ul></div><div class="collab"><b>Hỗ trợ:</b> TV4 chuẩn hóa biểu đồ/bảng.<br/><b>Review bởi:</b> TV1.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 7<small>Evidence</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Reset/re-index corpus demo có kiểm soát.</li><li>Xuất eval report cuối và chụp citation evidence.</li><li>Chuẩn bị 2–3 câu hỏi demo ổn định và 1 câu fallback.</li></ul></div><div class="collab"><b>Phối hợp:</b> TV1 rehearsal; TV3 production logs; TV4 slide số liệu.<br/><b>Sign-off:</b> TV1.</div></div></div>
+        </div>
+      </article>
+
+      <article id="tv3" class="roadmap" style="--member:var(--tv3)">
+        <div class="roadmap-header">
+          <div class="role-box"><h3>TV3 — Service Request, Security & DevOps Lead</h3><p>Sở hữu mô tả sự cố → phân loại/ưu tiên → deterministic verification → tạo ticket; giữ chuẩn database, security và release environment.</p></div>
+          <div class="output-box"><h4>Đầu ra cuối cùng</h4><ul><li>Classifier/router + deterministic rules</li><li>Ticket API, timeline UI và audit</li><li>Tenant isolation test</li><li>Docker Compose + bản deploy chạy được</li></ul></div>
+        </div>
+        <div class="timeline">
+          <div class="day"><div class="day-label">Ngày 1<small>Taxonomy</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Chốt taxonomy department/category/priority/status.</li><li>Tạo 100–300 ticket mẫu, có nhãn expected.</li><li>Thiết kế bảng service_requests/request_events.</li><li>Dựng UI tạo ticket/timeline bằng mock.</li></ul></div><div class="collab"><b>Nhận từ:</b> TV1 scope nghiệp vụ; TV2 data convention; TV4 UI kit.<br/><b>Review bởi:</b> TV2.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 2<small>AI routing</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Xây prompt/classifier trích category, location, priority.</li><li>Validate output bằng schema.</li><li>Viết deterministic rules cho urgent/fee/limit.</li></ul></div><div class="collab"><b>Hỗ trợ:</b> TV2 review prompt và test set.<br/><b>Review bởi:</b> TV2.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 3<small>Backend</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Hoàn thiện create/list/detail/update ticket API.</li><li>Gắn auth context, audit event và idempotency cơ bản.</li><li>Kết nối frontend, hiển thị kết quả AI có thể sửa trước khi gửi.</li></ul></div><div class="collab"><b>Nhận từ:</b> TV4 component/form states.<br/><b>Review bởi:</b> TV1 API contract, TV4 UX.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 4<small>Platform</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Tạo migration chung, seed script và <code>.env.example</code>.</li><li>Viết Dockerfile backend/frontend, Docker Compose.</li><li>Cấu hình health check, CORS, logging.</li></ul></div><div class="collab"><b>Nhận từ:</b> mỗi owner danh sách dependency/env.<br/><b>Hỗ trợ:</b> TV1 integration smoke test.<br/><b>Review bởi:</b> TV1.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 5<small>Security</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Rà soát endpoint authorization và tenant filter.</li><li>Test IDOR: hộ A không đọc/sửa hộ B.</li><li>Kiểm tra secret, file upload, log PII và rate limit cơ bản.</li><li>Deploy staging.</li></ul></div><div class="collab"><b>Phối hợp:</b> từng owner sửa policy module.<br/><b>Review bởi:</b> TV1; TV4 kiểm tra privacy UX.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 6<small>Production QA</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Load/smoke test API trọng yếu và kiểm tra migration sạch.</li><li>Kiểm tra restart/container persistence.</li><li>Viết security + deployment + database report.</li></ul></div><div class="collab"><b>Hỗ trợ:</b> TV1 chạy E2E; TV2 đo latency AI; TV4 kiểm UI production.<br/><b>Review bởi:</b> TV1.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 7<small>Deploy final</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Deploy release tag đã chốt, chạy smoke checklist.</li><li>Ghi rollback/recovery note và known issues.</li><li>Đảm bảo demo account/data hoạt động.</li></ul></div><div class="collab"><b>Phối hợp:</b> TV1 quyết định release; TV4 kiểm demo flow.<br/><b>Sign-off:</b> TV1.</div></div></div>
+        </div>
+      </article>
+
+      <article id="tv4" class="roadmap" style="--member:var(--tv4)">
+        <div class="roadmap-header">
+          <div class="role-box"><h3>TV4 — BQL Copilot, HITL, UX & Documentation Lead</h3><p>Sở hữu hồ sơ/ticket → AI tóm tắt/đề xuất → BQL quyết định → audit; giữ trải nghiệm thống nhất, báo cáo và kịch bản demo.</p></div>
+          <div class="output-box"><h4>Đầu ra cuối cùng</h4><ul><li>Copilot summarizer/recommender</li><li>Approval API + audit + BQL dashboard</li><li>AI evaluation dashboard/rubric</li><li>Báo cáo, slide và demo script</li></ul></div>
+        </div>
+        <div class="timeline">
+          <div class="day"><div class="day-label">Ngày 1<small>UX + HITL</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Thiết kế flow BQL: queue → detail → AI summary → decision.</li><li>Tạo UI kit, trạng thái loading/empty/error/success.</li><li>Tạo 20–30 hồ sơ approval synthetic và decision labels.</li><li>Dựng dashboard bằng mock.</li></ul></div><div class="collab"><b>Nhận từ:</b> TV1 profile schema; TV3 status/audit convention.<br/><b>Review bởi:</b> TV1.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 2<small>AI Copilot</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Xây tóm tắt hồ sơ và phát hiện giấy tờ thiếu.</li><li>Đề xuất approve/request-more-info/escalate kèm lý do.</li><li>Thêm confidence + fallback “cần BQL xem trực tiếp”.</li></ul></div><div class="collab"><b>Hỗ trợ:</b> TV2 review prompt/schema; TV1 xác nhận nghiệp vụ.<br/><b>Review bởi:</b> TV2.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 3<small>HITL API</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Xây queue/detail/approve/reject/request-info API.</li><li>Ghi cả AI recommendation và human decision.</li><li>Kết nối dashboard; BQL sửa/ghi lý do trước khi xác nhận.</li></ul></div><div class="collab"><b>Nhận từ:</b> TV3 auth/audit middleware.<br/><b>Review bởi:</b> TV3 backend, TV1 nghiệp vụ.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 4<small>AI evaluation</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Tạo rubric correctness/grounding/privacy/action safety.</li><li>Làm dashboard pass rate, disagreement và failure cases.</li><li>Đo tỉ lệ BQL đồng ý với đề xuất AI trên test set.</li></ul></div><div class="collab"><b>Phối hợp:</b> TV2 cung cấp golden set và metric; TV1/TV3 cung cấp case module.<br/><b>Review bởi:</b> TV2.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 5<small>UX QA</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Review responsive và consistency của cả 4 màn hình.</li><li>Kiểm tra AI transparency: nguồn, confidence, trạng thái HITL.</li><li>Test bàn phím, label form, contrast cơ bản.</li></ul></div><div class="collab"><b>Hỗ trợ:</b> mỗi owner sửa màn hình của mình.<br/><b>Review privacy:</b> TV3.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 6<small>Documentation</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Tổng hợp báo cáo từ nội dung mỗi người.</li><li>Chuẩn hóa hình, bảng, thuật ngữ và số liệu.</li><li>Làm slide, demo script, video dự phòng.</li></ul></div><div class="collab"><b>Nhận từ:</b> mỗi người nộp section + evidence trước hạn.<br/><b>Review bởi:</b> TV1 nội dung, cả nhóm số liệu.</div></div></div>
+          <div class="day"><div class="day-label">Ngày 7<small>Demo</small></div><div class="tasks"><div><h4>Thực hiện</h4><ul><li>Chạy rehearsal có bấm giờ và phân lời thuyết trình.</li><li>Kiểm tra responsive trên Android/iPhone viewport.</li><li>Chốt slide và bản báo cáo final.</li></ul></div><div class="collab"><b>Phối hợp:</b> cả nhóm thuyết trình phần mình.<br/><b>Sign-off:</b> TV1 + cả nhóm.</div></div></div>
+        </div>
+      </article>
+    </section>
+
+    <section id="quality" class="panel">
+      <div class="section-head">
+        <div><div class="section-no">04 · Quality gates</div><h2>Tiêu chí kiểm thử, đánh giá và hoàn thành</h2><p>Một task không được chuyển Done chỉ vì “chạy được trên máy người làm”.</p></div>
+      </div>
+      <div class="criteria">
+        <article class="card"><h3>Kiểm thử bắt buộc</h3><ul><li>Happy path và ít nhất 1 failure path.</li><li>Validation input/output và API status đúng.</li><li>Loading, empty, error, success state.</li><li>Tenant isolation với hộ A/hộ B.</li><li>Smoke test trên môi trường deploy.</li><li>Regression test trước release.</li></ul></article>
+        <article class="card"><h3>Đánh giá AI</h3><ul><li>Output đúng JSON/schema.</li><li>Correctness và grounding có evidence.</li><li>Không tự tính phí/hạn mức bằng suy đoán.</li><li>Có fallback khi thiếu thông tin.</li><li>Không tiết lộ dữ liệu tenant khác.</li><li>Ghi model, prompt version, latency.</li></ul></article>
+        <article class="card"><h3>Definition of Done</h3><ul><li>Code đã review và merge.</li><li>Test/evidence đính kèm.</li><li>Không có secret trong repo.</li><li>API đúng contract, migration chạy sạch.</li><li>Tài liệu chạy và bàn giao đầy đủ.</li><li>Demo được trên URL chung.</li></ul></article>
+      </div>
+
+      <div class="score-grid mt">
+        <article class="card">
+          <h3>Rubric đánh giá module</h3>
+          <div class="score"><div><strong>Đúng nghiệp vụ</strong><small>Happy/failure cases, đúng workflow</small></div><div class="weight">25%</div></div>
+          <div class="score"><div><strong>Chất lượng AI</strong><small>Correctness, grounding, fallback, schema</small></div><div class="weight">25%</div></div>
+          <div class="score"><div><strong>Backend & security</strong><small>API, auth, tenant isolation, audit</small></div><div class="weight">20%</div></div>
+          <div class="score"><div><strong>Frontend & UX</strong><small>Responsive, states, minh bạch AI</small></div><div class="weight">15%</div></div>
+          <div class="score"><div><strong>Test & evidence</strong><small>Test log, screenshot, metrics</small></div><div class="weight">10%</div></div>
+          <div class="score"><div><strong>Tài liệu bàn giao</strong><small>README, report section, limitations</small></div><div class="weight">5%</div></div>
+        </article>
+        <article class="card">
+          <h3>Ngưỡng nghiệm thu MVP</h3>
+          <ul class="checklist">
+            <li><input type="checkbox"/><span><strong>RAG:</strong> Hit@3 ≥ 80% trên golden set và citation đúng tài liệu.</span></li>
+            <li><input type="checkbox"/><span><strong>Checklist:</strong> ≥ 90% expected items trên test profiles.</span></li>
+            <li><input type="checkbox"/><span><strong>Routing:</strong> macro-F1 hoặc accuracy ≥ 80% trên test set cân bằng.</span></li>
+            <li><input type="checkbox"/><span><strong>HITL:</strong> 100% quyết định nhạy cảm cần hành động BQL.</span></li>
+            <li><input type="checkbox"/><span><strong>Security:</strong> 0 trường hợp cross-tenant trong test bắt buộc.</span></li>
+            <li><input type="checkbox"/><span><strong>Stability:</strong> 100% luồng P0 qua smoke test production.</span></li>
+          </ul>
+        </article>
+      </div>
+
+      <details class="mt" open><summary>Test matrix tối thiểu cho từng module</summary><div class="table-wrap"><table><thead><tr><th>Module</th><th>Functional</th><th>AI quality</th><th>Safety/security</th><th>Failure/fallback</th></tr></thead><tbody>
+        <tr><td>TV1 Checklist</td><td>Owner/tenant, vehicle/no vehicle</td><td>Expected checklist coverage</td><td>Không đọc checklist hộ khác</td><td>Thiếu profile, model timeout</td></tr>
+        <tr><td>TV2 RAG</td><td>Query đúng khu/version</td><td>Hit@3, citation, faithfulness</td><td>Prompt injection, wrong tenant corpus</td><td>Không có tài liệu phù hợp</td></tr>
+        <tr><td>TV3 Ticket</td><td>Create/update/timeline</td><td>Category/priority accuracy</td><td>IDOR, log PII, invalid status</td><td>Classifier lỗi → manual category</td></tr>
+        <tr><td>TV4 HITL</td><td>Queue/approve/request info</td><td>Summary/recommendation agreement</td><td>AI không tự approve</td><td>Low confidence → human review</td></tr>
+      </tbody></table></div></details>
+    </section>
+
+    <section id="handover" class="panel">
+      <div class="section-head">
+        <div><div class="section-no">05 · Handover package</div><h2>Cấu trúc mẫu cần bàn giao</h2><p>Mỗi thành viên nộp cùng một cấu trúc để người khác có thể chạy, kiểm tra và trình bày module mà không cần hỏi lại.</p></div>
+      </div>
+      <div class="grid-2">
+        <pre>deliverables/
+├── TV1-onboarding/
+│   ├── README.md
+│   ├── module-report.md
+│   ├── api-contract.yaml
+│   ├── data/
+│   ├── prompts/
+│   ├── tests/
+│   └── evidence/
+├── TV2-rag/              # cùng cấu trúc
+├── TV3-service-request/  # cùng cấu trúc
+├── TV4-bql-copilot/      # cùng cấu trúc
+└── final/
+    ├── report.pdf
+    ├── slides.pdf
+    ├── demo-script.md
+    ├── test-summary.md
+    └── known-limitations.md</pre>
+        <pre>module-name/
+├── README.md              # cài đặt + chạy
+├── module-report.md       # thiết kế + kết quả
+├── api-contract.yaml      # request/response
+├── data/
+│   ├── manifest.json
+│   ├── sample.jsonl
+│   └── data-dictionary.md
+├── prompts/
+│   ├── system-v1.txt
+│   └── changelog.md
+├── tests/
+│   ├── cases.jsonl
+│   └── results.json
+└── evidence/
+    ├── screenshots/
+    ├── metrics.json
+    └── test-log.txt</pre>
+      </div>
+
+      <details class="mt" open><summary>Mẫu README bàn giao module</summary><div><pre># Tên module
+
+## 1. Owner và reviewer
+- Owner:
+- Reviewer:
+- Người hỗ trợ:
+
+## 2. Mục tiêu và phạm vi
+- User story:
+- P0 đã hoàn thành:
+- Ngoài phạm vi:
+
+## 3. Cách chạy
+- Biến môi trường:
+- Lệnh migration/seed:
+- Lệnh chạy test:
+
+## 4. API và dữ liệu
+- Endpoint:
+- Schema:
+- Dataset/manifest:
+
+## 5. AI configuration
+- Model/embedding:
+- Prompt version:
+- Output schema:
+- Fallback:
+
+## 6. Kết quả kiểm thử
+- Functional:
+- AI metrics:
+- Security:
+- Production smoke test:
+
+## 7. Known limitations
+- ...
+
+## 8. Evidence
+- Pull request/commit:
+- Screenshot/log/report:</pre></div></details>
+
+      <details><summary>Mẫu phiếu bàn giao task / pull request</summary><div><pre>Task ID:
+Owner:
+Reviewer:
+Feature/Module:
+
+Đã làm:
+- [ ] Code
+- [ ] Migration/seed
+- [ ] Unit/integration test
+- [ ] Error states
+- [ ] Documentation
+
+Kiểm thử:
+- Input bình thường:
+- Input lỗi/thiếu:
+- Expected output:
+- Actual output:
+- Evidence:
+
+AI checklist:
+- Model + prompt version:
+- Schema validation:
+- Fallback:
+- Privacy/tenant test:
+
+Ảnh hưởng module khác:
+- API/schema thay đổi:
+- Migration cần chạy:
+- Env mới:
+
+Reviewer quyết định:
+- [ ] Approve
+- [ ] Request changes
+- Ghi chú:</pre></div></details>
+
+      <details><summary>Mẫu manifest dữ liệu</summary><div><pre>{
+  "dataset_name": "moveinmate-service-requests-v1",
+  "owner": "TV3",
+  "version": "1.0.0",
+  "created_at": "YYYY-MM-DD",
+  "source_type": "public_plus_synthetic",
+  "contains_pii": false,
+  "license_or_source": ["..."],
+  "records": 200,
+  "train_records": 140,
+  "validation_records": 30,
+  "test_records": 30,
+  "label_schema": "data-dictionary.md",
+  "known_biases": ["Synthetic Vietnamese samples"],
+  "checksum": "..."
+}</pre></div></details>
+    </section>
+
+    <section id="release" class="panel">
+      <div class="section-head">
+        <div><div class="section-no">06 · Release control</div><h2>Checklist trước khi bàn giao cuối</h2><p>Code freeze trước giờ trình bày tối thiểu 12 giờ; sau freeze chỉ sửa lỗi P0.</p></div>
+      </div>
+      <div class="grid-2">
+        <div>
+          <h3>Technical release checklist</h3>
+          <ul class="checklist">
+            <li><input type="checkbox"/><span>Frontend, backend, database và vector store khởi động từ hướng dẫn sạch.</span></li>
+            <li><input type="checkbox"/><span>Migration + seed chạy thành công trên môi trường mới.</span></li>
+            <li><input type="checkbox"/><span>Không có API key, secret hoặc PII thật trong repository/log.</span></li>
+            <li><input type="checkbox"/><span>Tất cả endpoint P0 có auth, authorization và error handling.</span></li>
+            <li><input type="checkbox"/><span>4 luồng P0 qua end-to-end smoke test production.</span></li>
+            <li><input type="checkbox"/><span>Có demo account, dữ liệu reset và phương án offline/video.</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Report & demo checklist</h3>
+          <ul class="checklist">
+            <li><input type="checkbox"/><span>Số liệu báo cáo khớp kết quả test và slide.</span></li>
+            <li><input type="checkbox"/><span>Mỗi thành viên có phần AI, backend/frontend và evidence riêng.</span></li>
+            <li><input type="checkbox"/><span>Có sơ đồ kiến trúc, agent graph, RAG pipeline và HITL flow.</span></li>
+            <li><input type="checkbox"/><span>Nêu rõ data thật, data synthetic, nguồn và giới hạn.</span></li>
+            <li><input type="checkbox"/><span>Demo đã bấm giờ, có người điều khiển và người thuyết trình.</span></li>
+            <li><input type="checkbox"/><span>Known limitations và hướng phát triển không bị trình bày như tính năng đã có.</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="notice mt"><strong>Quyết định release:</strong> TV3 xác nhận môi trường; TV2 xác nhận dữ liệu/AI metrics; TV4 xác nhận UX/tài liệu; TV1 là người quyết định bản nào được gắn tag và sử dụng để demo.</div>
+    </section>
+  </main>
+
+  <footer><div class="container">MoveInMate AI · VHR-16 · Roadmap MVP 7 ngày · Có thể thay TV1–TV4 bằng tên thành viên thật.</div></footer>
+
+  <script>
+    document.querySelectorAll('[data-target]').forEach(button => {
+      button.addEventListener('click', () => document.getElementById(button.dataset.target)?.scrollIntoView({behavior:'smooth'}));
+    });
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(item => item.classList.remove('active'));
+        document.querySelectorAll('.roadmap').forEach(item => item.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.tab)?.classList.add('active');
+      });
+    });
+    document.querySelectorAll('.checklist input').forEach((box, index) => {
+      const key = `moveinmate-check-${index}`;
+      box.checked = localStorage.getItem(key) === '1';
+      box.addEventListener('change', () => localStorage.setItem(key, box.checked ? '1' : '0'));
+    });
+  </script>
+</body>
+</html>
