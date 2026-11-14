@@ -1,12 +1,16 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   CheckCircle2,
-  Database,
+  Crown,
+  Eye,
+  EyeOff,
   KeyRound,
   Lock,
   LogIn,
+  LogOut,
+  Mail,
   ShieldCheck,
-  Terminal,
+  UserCheck,
   X,
 } from 'lucide-react';
 import type { SupabaseEnvConfig } from '../lib/supabase';
@@ -18,7 +22,6 @@ interface SupabaseSetupModalProps {
   currentMember: MemberCode | null;
   authEmail: string | null;
   onClose: () => void;
-  onSelectDemoMember: (code: MemberCode | null) => void;
   onSupabaseSignIn: (
     email: string,
     password: string,
@@ -27,27 +30,48 @@ interface SupabaseSetupModalProps {
 }
 
 export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
-  envConfig,
   members,
   currentMember,
   authEmail,
   onClose,
-  onSelectDemoMember,
   onSupabaseSignIn,
   onSupabaseSignOut,
 }) => {
+  const defaultMember =
+    members.find((m) => m.memberCode === currentMember) ?? members[0];
+  const [selectedCode, setSelectedCode] = useState<MemberCode>(
+    defaultMember?.memberCode || 'TV1',
+  );
   const [email, setEmail] = useState(
-    members[0]?.email || 'buidangquangmtp@gmail.com',
+    defaultMember?.email || 'buidangquangmtp@gmail.com',
   );
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [authStatus, setAuthStatus] = useState<{
     type: 'info' | 'error' | 'success';
     text: string;
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleSelectMemberCard = (member: TeamMember) => {
+    setSelectedCode(member.memberCode);
+    setEmail(member.email);
+    setAuthStatus(null);
+    window.setTimeout(() => {
+      passwordInputRef.current?.focus();
+    }, 30);
+  };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim() || !password) {
+      setAuthStatus({
+        type: 'error',
+        text: 'Vui lòng nhập đầy đủ email và mật khẩu của thành viên.',
+      });
+      return;
+    }
     setSubmitting(true);
     setAuthStatus(null);
     try {
@@ -56,10 +80,16 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
         type: res.ok ? 'success' : 'error',
         text: res.message,
       });
+      if (res.ok) {
+        setPassword('');
+        onClose();
+      }
     } finally {
       setSubmitting(false);
     }
   };
+
+  const activeMemberObj = members.find((m) => m.memberCode === currentMember);
 
   return (
     <div
@@ -68,208 +98,224 @@ export const SupabaseSetupModal: React.FC<SupabaseSetupModalProps> = ({
       aria-modal="true"
       aria-labelledby="auth-setup-modal-title"
     >
-      <div className="modal-panel modal-panel-md">
-        <header className="modal-header">
-          <div>
-            <span className="badge badge-code">
-              {envConfig.isConfigured
-                ? 'Supabase Connected'
-                : 'Demo Mode (Safe Fallback)'}
-            </span>
-            <h2 id="auth-setup-modal-title" className="modal-title">
-              Xác thực Thành viên & Cấu hình Supabase RLS / Realtime
-            </h2>
+      <div className="modal-panel auth-modal-modern">
+        {/* Modern Dark Gradient Header */}
+        <header className="auth-modal-hero">
+          <div className="auth-hero-left">
+            <div className="auth-hero-icon">
+              <KeyRound size={22} />
+            </div>
+            <div>
+              <span className="auth-eyebrow">
+                MoveInMate AI · Phân quyền Thành viên & Admin
+              </span>
+              <h2 id="auth-setup-modal-title" className="auth-hero-title">
+                Đăng nhập Tài khoản Thành viên
+              </h2>
+              <p className="auth-hero-subtitle">
+                Mỗi thành viên chỉ tương tác được trên phần công việc của mình.
+                Tài khoản Admin (TV1) có toàn quyền điều phối cả nhóm.
+              </p>
+            </div>
           </div>
           <button
             type="button"
-            className="icon-close-btn"
+            className="auth-close-btn"
             onClick={onClose}
-            aria-label="Đóng cửa sổ cấu hình"
+            aria-label="Đóng cửa sổ đăng nhập"
           >
             <X size={20} />
           </button>
         </header>
 
-        <div className="modal-body">
-          {/* Section 1: Supabase Live Auth (when env configured) OR Demo Role Switcher */}
-          {envConfig.isConfigured ? (
-            <section className="detail-section">
-              <h3>
-                <KeyRound size={16} /> Đăng nhập bằng Supabase Auth
-              </h3>
-              <p className="muted-text">
-                Ứng dụng sử dụng trực tiếp Supabase Auth (không tự lưu mật khẩu
-                riêng). Chỉ email nằm trong bảng <code>team_members</code> của
-                workspace mới vượt qua được Row Level Security (RLS).
-              </p>
-
-              {authStatus && (
-                <div className={`alert-banner alert-${authStatus.type}`}>
-                  <span>{authStatus.text}</span>
+        <div className="auth-modal-body">
+          {/* Active Session Banner if already logged in */}
+          {currentMember && activeMemberObj && (
+            <div
+              className="auth-current-session"
+              style={
+                {
+                  '--member-color': activeMemberObj.colorHex,
+                } as React.CSSProperties
+              }
+            >
+              <div className="auth-session-info">
+                <div className="auth-session-avatar">
+                  {activeMemberObj.avatarLabel}
                 </div>
-              )}
-
-              {authEmail ? (
-                <div className="info-box">
-                  <p>
-                    Đang đăng nhập với email: <strong>{authEmail}</strong> (Vai
-                    trò: <strong>{currentMember || 'Unauthorized'}</strong>)
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-sm"
-                    onClick={() => void onSupabaseSignOut()}
-                  >
-                    Đăng xuất phiên Supabase
-                  </button>
-                </div>
-              ) : (
-                <form className="metadata-form" onSubmit={handleLoginSubmit}>
-                  <label>
-                    <span>Email thành viên (TV1–TV4)</span>
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="buidangquangmtp@gmail.com"
-                    />
-                  </label>
-                  <label>
-                    <span>Mật khẩu tài khoản thành viên</span>
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                    />
-                  </label>
-                  <div className="quick-email-pills">
-                    {members.map((m) => (
-                      <button
-                        key={m.memberCode}
-                        type="button"
-                        className="chip-toggle"
-                        onClick={() => setEmail(m.email)}
-                      >
-                        Chọn {m.displayName} ({m.email})
-                      </button>
-                    ))}
+                <div>
+                  <div className="auth-session-name-row">
+                    <strong>{activeMemberObj.displayName}</strong>
+                    {currentMember === 'TV1' ? (
+                      <span className="auth-role-badge badge-admin">
+                        <Crown size={12} /> ADMIN · Toàn quyền
+                      </span>
+                    ) : (
+                      <span className="auth-role-badge badge-member">
+                        <UserCheck size={12} /> Quyền Owner {currentMember} &
+                        Reviewer
+                      </span>
+                    )}
                   </div>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="btn btn-primary"
-                  >
-                    <LogIn size={16} />{' '}
-                    {submitting
-                      ? 'Đang xác thực...'
-                      : 'Đăng nhập Supabase Auth'}
-                  </button>
-                </form>
-              )}
-            </section>
-          ) : (
-            <section className="detail-section">
-              <h3>
-                <ShieldCheck size={16} /> Chuyển đổi Phiên Thành viên trong Demo
-                Mode
-              </h3>
-              <p className="muted-text">
-                Hiện tại tệp <code>.env</code> đang để trống theo thiết kế an
-                toàn. Bạn có thể chuyển đổi nhanh giữa 4 thành viên{' '}
-                <strong>TV1–TV4</strong> hoặc thử chế độ{' '}
-                <strong>Khách ngoài (Unauthorized RLS)</strong> để kiểm thử phân
-                quyền Owner / Reviewer.
-              </p>
-              <div className="demo-member-cards">
-                {members.map((m) => (
+                  <small>{authEmail || activeMemberObj.email}</small>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-danger-outline btn-sm"
+                onClick={() => void onSupabaseSignOut()}
+              >
+                <LogOut size={14} /> Đăng xuất
+              </button>
+            </div>
+          )}
+
+          {/* Step 1: Visual 2x2 Member Account Picker */}
+          <div className="auth-step-block">
+            <div className="auth-step-label">
+              <span>1. Chọn tài khoản thành viên của bạn</span>
+              <small>Bấm vào thẻ để tự động điền Email</small>
+            </div>
+
+            <div className="auth-member-grid">
+              {members.map((m) => {
+                const isSelected =
+                  email.toLowerCase() === m.email.toLowerCase() ||
+                  selectedCode === m.memberCode;
+                const isCurrentLogged = currentMember === m.memberCode;
+                const isAdmin = m.memberCode === 'TV1';
+
+                return (
                   <button
                     key={m.memberCode}
                     type="button"
-                    onClick={() => {
-                      onSelectDemoMember(m.memberCode);
-                      onClose();
-                    }}
-                    className={`demo-role-card ${
-                      currentMember === m.memberCode ? 'active' : ''
+                    onClick={() => handleSelectMemberCard(m)}
+                    style={
+                      { '--member-color': m.colorHex } as React.CSSProperties
+                    }
+                    className={`auth-account-card ${
+                      isSelected ? 'selected' : ''
                     }`}
                   >
-                    <div className="demo-role-top">
-                      <strong>{m.displayName}</strong>
-                      {currentMember === m.memberCode && (
-                        <CheckCircle2 size={16} />
-                      )}
+                    <div className="auth-card-top">
+                      <span className="auth-card-avatar">{m.memberCode}</span>
+                      <div className="auth-card-badges">
+                        {isAdmin ? (
+                          <span className="auth-mini-pill pill-admin">
+                            <Crown size={11} /> Admin & Lead
+                          </span>
+                        ) : (
+                          <span className="auth-mini-pill pill-slice">
+                            {m.sliceName.split('&')[0].trim()}
+                          </span>
+                        )}
+                        {isCurrentLogged && (
+                          <span className="auth-mini-pill pill-online">
+                            <CheckCircle2 size={11} /> Đang dùng
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <small>{m.email}</small>
-                    <span className="role-chip">{m.crossRole}</span>
+                    <div className="auth-card-name">
+                      {m.displayName.replace(/^TV\d\s*·\s*/, '')}
+                    </div>
+                    <div className="auth-card-email">{m.email}</div>
                   </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectDemoMember(null);
-                    onClose();
-                  }}
-                  className={`demo-role-card unauthorized-card ${
-                    currentMember === null ? 'active' : ''
-                  }`}
-                >
-                  <div className="demo-role-top">
-                    <strong>
-                      <Lock size={14} /> Khách ngoài / Cross-Workspace
-                    </strong>
-                    {currentMember === null && <CheckCircle2 size={16} />}
-                  </div>
-                  <small>outside.user@external.local</small>
-                  <span className="role-chip">
-                    Kiểm thử chặn quyền sửa & RLS
-                  </span>
-                </button>
-              </div>
-            </section>
-          )}
-
-          {/* Section 2: SQL & Environment Setup Checklist */}
-          <section className="detail-section">
-            <h3>
-              <Database size={16} /> Hướng dẫn kết nối Supabase thật (3 bước)
-            </h3>
-            <ol className="setup-steps-list">
-              <li>
-                <strong>Chạy SQL Migration & Seed:</strong> Mở Supabase SQL
-                Editor và chạy lần lượt{' '}
-                <code>supabase/migrations/20261114000001_schema_and_rls.sql</code>{' '}
-                và <code>supabase/seed.sql</code>.
-              </li>
-              <li>
-                <strong>Tạo 4 tài khoản Auth:</strong> Trong Supabase Dashboard
-                → Authentication → Users, tạo 4 user khớp với email trong bảng{' '}
-                <code>team_members</code> (hoặc cập nhật email thật của 4 bạn).
-              </li>
-              <li>
-                <strong>Điền tệp .env (đã nằm trong .gitignore):</strong>
-                <pre className="code-snippet">
-                  {`VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<anon-public-key>
-VITE_DEFAULT_WORKSPACE_SLUG=moveinmate-vhr16`}
-                </pre>
-              </li>
-            </ol>
-            <div className="rls-summary-badge">
-              <Terminal size={15} />
-              <span>
-                <strong>Bảo mật RLS:</strong> Tất cả 7 bảng đều bật{' '}
-                <code>ENABLE ROW LEVEL SECURITY</code>, hàm{' '}
-                <code>public.is_workspace_member(workspace_id)</code> ngăn người
-                ngoài và ngăn truy cập chéo giữa các workspace.
-              </span>
+                );
+              })}
             </div>
-          </section>
+          </div>
+
+          {/* Step 2: Password & Sign-In Form */}
+          <form className="auth-login-form" onSubmit={handleLoginSubmit}>
+            <div className="auth-step-label">
+              <span>2. Nhập mật khẩu xác thực</span>
+              <small>Xác thực trực tiếp qua Supabase Auth</small>
+            </div>
+
+            {authStatus && (
+              <div className={`alert-banner alert-${authStatus.type}`}>
+                <span>{authStatus.text}</span>
+              </div>
+            )}
+
+            <div className="auth-inputs-row">
+              <label className="auth-field">
+                <span>Email đăng nhập</span>
+                <div className="auth-input-box">
+                  <Mail size={16} className="auth-field-icon" />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="buidangquangmtp@gmail.com"
+                  />
+                </div>
+              </label>
+
+              <label className="auth-field">
+                <span>Mật khẩu</span>
+                <div className="auth-input-box">
+                  <Lock size={16} className="auth-field-icon" />
+                  <input
+                    ref={passwordInputRef}
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Nhập mật khẩu của bạn..."
+                  />
+                  <button
+                    type="button"
+                    className="auth-eye-btn"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-label={
+                      showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'
+                    }
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </label>
+            </div>
+
+            <div className="auth-submit-row">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="btn btn-primary auth-submit-btn"
+              >
+                <LogIn size={16} />{' '}
+                {submitting
+                  ? 'Đang xác thực tài khoản...'
+                  : 'Đăng nhập & Mở khoá Tương tác'}
+              </button>
+            </div>
+          </form>
+
+          {/* Role Permission Rules Box */}
+          <div className="auth-rbac-box">
+            <div className="auth-rbac-item">
+              <Crown size={16} className="rbac-icon-admin" />
+              <div>
+                <strong>Admin (TV1 · Bùi Đăng Quang):</strong> Toàn quyền tương
+                tác, tick checklist, đổi trạng thái, duyệt Review và quản trị
+                tất cả 28 task của cả 4 thành viên.
+              </div>
+            </div>
+            <div className="auth-rbac-item">
+              <ShieldCheck size={16} className="rbac-icon-member" />
+              <div>
+                <strong>Thành viên (TV2, TV3, TV4):</strong> Chỉ tương tác được
+                trên các task của riêng mình (Owner) và bấm Approve trên các
+                task mình được giao làm Reviewer. Các phần khác ở chế độ Chỉ
+                xem.
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 };
-

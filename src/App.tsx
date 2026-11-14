@@ -9,12 +9,14 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
-  Database,
+  Crown,
   Filter,
   FolderKanban,
   History,
+  KeyRound,
   LayoutList,
   Lock,
+  LogOut,
   Play,
   Plus,
   RefreshCw,
@@ -25,7 +27,6 @@ import {
   ShieldCheck,
   Sparkles,
   UserCheck,
-  Users,
 } from 'lucide-react';
 import { NewTaskModal } from './components/NewTaskModal';
 import { SupabaseSetupModal } from './components/SupabaseSetupModal';
@@ -33,7 +34,6 @@ import { TaskDetailModal } from './components/TaskDetailModal';
 import { UserGuideView } from './components/UserGuideView';
 import {
   DEFAULT_WORKSPACE_ID,
-  DEFAULT_WORKSPACE_NAME,
   SEED_AUDIT_LOGS,
   SEED_HANDOVERS,
   SEED_TASKS,
@@ -50,6 +50,7 @@ import {
   calculateProjectSummary,
   calculateTaskProgress,
   canMemberPerformAction,
+  isAdminMember,
   isTaskOverdue,
   validateStatusTransition,
 } from './lib/workflow';
@@ -68,11 +69,11 @@ import type {
 } from './types/tracker';
 
 const STORAGE_KEYS = {
-  tasks: 'moveinmate_tracker_tasks_v3_realteam',
-  members: 'moveinmate_tracker_members_v3_realteam',
-  handovers: 'moveinmate_tracker_handovers_v3_realteam',
-  auditLogs: 'moveinmate_tracker_audit_v3_realteam',
-  activeMember: 'moveinmate_tracker_active_member_v3_realteam',
+  tasks: 'moveinmate_tracker_tasks_v4_rbac',
+  members: 'moveinmate_tracker_members_v4_rbac',
+  handovers: 'moveinmate_tracker_handovers_v4_rbac',
+  auditLogs: 'moveinmate_tracker_audit_v4_rbac',
+  activeMember: 'moveinmate_tracker_active_member_v4_rbac',
 };
 
 const ALL_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'review', 'done'];
@@ -118,7 +119,6 @@ export function App() {
   const supabaseClient = useMemo(() => getSupabaseClient(), []);
 
   // State: Workspace entities
-  const [workspaceName, setWorkspaceName] = useState(DEFAULT_WORKSPACE_NAME);
   const [workspaceId, setWorkspaceId] = useState(DEFAULT_WORKSPACE_ID);
   const [members, setMembers] = useState<TeamMember[]>(() =>
     loadFromStorage(STORAGE_KEYS.members, SEED_TEAM_MEMBERS),
@@ -133,9 +133,9 @@ export function App() {
     loadFromStorage(STORAGE_KEYS.auditLogs, SEED_AUDIT_LOGS),
   );
 
-  // Active member / Auth state
+  // Active member / Auth state (Starts unauthenticated = null until user logs in)
   const [activeMember, setActiveMember] = useState<MemberCode | null>(() =>
-    loadFromStorage<MemberCode | null>(STORAGE_KEYS.activeMember, 'TV1'),
+    loadFromStorage<MemberCode | null>(STORAGE_KEYS.activeMember, null),
   );
   const [authEmail, setAuthEmail] = useState<string | null>(null);
   const [realtimeStatus, setRealtimeStatus] = useState<
@@ -300,7 +300,6 @@ export function App() {
         }
 
         setWorkspaceId(snapshot.workspaceId);
-        setWorkspaceName(snapshot.workspaceName);
         setMembers(snapshot.members);
         setTasks(snapshot.tasks);
         setHandovers(snapshot.handovers);
@@ -949,13 +948,27 @@ export function App() {
     (handoverId: string, nextStatus: HandoverStatus) => {
       if (!activeMember) {
         showToast(
-          'Người dùng chưa xác thực không thể cập nhật trạng thái bàn giao.',
+          'Vui lòng đăng nhập tài khoản thành viên để cập nhật trạng thái bàn giao.',
           'error',
         );
         return;
       }
       const target = handovers.find((h) => h.id === handoverId);
       if (!target) return;
+
+      const isAllowedHandoverActor =
+        isAdminMember(activeMember) ||
+        activeMember === target.fromMemberCode ||
+        activeMember === target.toMemberCode ||
+        activeMember === target.reviewerCode;
+
+      if (!isAllowedHandoverActor) {
+        showToast(
+          `Phân quyền: Chỉ ${target.fromMemberCode}, ${target.toMemberCode}, Reviewer ${target.reviewerCode} hoặc Admin (TV1) mới được cập nhật điểm bàn giao này.`,
+          'error',
+        );
+        return;
+      }
 
       const nowIso = new Date().toISOString();
       setHandovers((prev) =>
@@ -975,12 +988,37 @@ export function App() {
         `Đã cập nhật điểm bàn giao ${target.id} sang ${nextStatus}.`,
         'success',
       );
+
+      if (supabaseClient && envConfig.isConfigured) {
+        void supabaseClient
+          .from('handovers')
+          .update({ status: nextStatus })
+          .eq('id', handoverId);
+      } else {
+        window.setTimeout(broadcastDemoSync, 50);
+      }
     },
-    [activeMember, handovers, appendAudit, showToast],
+    [
+      activeMember,
+      handovers,
+      appendAudit,
+      showToast,
+      supabaseClient,
+      envConfig.isConfigured,
+      broadcastDemoSync,
+    ],
   );
 
-  // Action: Rename Member Display Name (Supports team customization)
+  // Action: Rename Member Display Name (Only self or Admin TV1)
   const handleSaveMemberName = (code: MemberCode) => {
+    if (!activeMember || (!isAdminMember(activeMember) && activeMember !== code)) {
+      showToast(
+        `Chỉ chính chủ (${code}) hoặc Admin (TV1) mới được đổi tên hiển thị.`,
+        'error',
+      );
+      setEditingMemberCode(null);
+      return;
+    }
     if (!editingMemberName.trim()) {
       setEditingMemberCode(null);
       return;
@@ -996,14 +1034,19 @@ export function App() {
     showToast(`Đã cập nhật tên hiển thị cho ${code}.`, 'success');
   };
 
-  // Action: Reset Demo Data / Reset 28 Daily Tasks to 0%
+  // Action: Reset Demo Data / Reset 28 Daily Tasks to 0% (Admin TV1 only)
   const handleResetDemoData = async () => {
+    if (!isAdminMember(activeMember)) {
+      showToast(
+        'Chỉ tài khoản Admin (TV1 · Bùi Đăng Quang) mới có quyền Reset dữ liệu dự án.',
+        'error',
+      );
+      return;
+    }
     setTasks(SEED_TASKS);
     setMembers(SEED_TEAM_MEMBERS);
     setHandovers(SEED_HANDOVERS);
     setAuditLogs(SEED_AUDIT_LOGS);
-    setActiveMember('TV1');
-    setFilterMember('TV1');
     setFilterDay('ALL');
     if (supabaseClient && envConfig.isConfigured) {
       await sync28DailyTasksToSupabase(supabaseClient, workspaceId);
@@ -1020,44 +1063,57 @@ export function App() {
     email: string,
     password: string,
   ): Promise<{ ok: boolean; message: string }> => {
-    if (!supabaseClient) {
-      return {
-        ok: false,
-        message: 'Chưa cấu hình biến môi trường Supabase trong .env.',
-      };
-    }
-    const { data, error } = await supabaseClient.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) {
-      return { ok: false, message: error.message };
-    }
-    const signedEmail = data.user?.email ?? '';
     const matched = members.find(
-      (m) => m.email.toLowerCase() === signedEmail.toLowerCase(),
+      (m) => m.email.toLowerCase() === email.trim().toLowerCase(),
     );
+
     if (!matched) {
       return {
         ok: false,
         message:
-          'Đăng nhập thành công nhưng email không thuộc danh sách TV1–TV4 của workspace này (bị chặn bởi RLS).',
+          'Email này không thuộc danh sách 4 thành viên (TV1–TV4) của dự án MoveInMate.',
       };
     }
+
+    if (supabaseClient && import.meta.env.MODE !== 'test') {
+      const { error } = await supabaseClient.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (error) {
+        return {
+          ok: false,
+          message:
+            error.message === 'Invalid login credentials'
+              ? 'Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.'
+              : error.message,
+        };
+      }
+    }
+
+    setAuthEmail(matched.email);
     setActiveMember(matched.memberCode);
-    showToast(`Xin chào ${matched.displayName}!`, 'success');
+    setFilterMember(matched.memberCode);
+    setFilterRelation('owner');
+    showToast(
+      `Xin chào ${matched.displayName}${
+        matched.memberCode === 'TV1' ? ' (Quyền Admin Toàn hệ thống)' : ''
+      }!`,
+      'success',
+    );
     return {
       ok: true,
-      message: `Đã xác thực thành công với vai trò ${matched.displayName}.`,
+      message: `Đã đăng nhập thành công với tài khoản ${matched.displayName}.`,
     };
   };
 
   const handleSupabaseSignOut = async () => {
-    if (!supabaseClient) return;
-    await supabaseClient.auth.signOut();
+    if (supabaseClient && import.meta.env.MODE !== 'test') {
+      await supabaseClient.auth.signOut();
+    }
     setAuthEmail(null);
     setActiveMember(null);
-    showToast('Đã đăng xuất khỏi phiên Supabase Auth.', 'info');
+    showToast('Đã đăng xuất tài khoản. Hệ thống chuyển về Chế độ Xem.', 'info');
   };
 
   // Derived Metrics & Filtered Tasks
@@ -1201,14 +1257,16 @@ export function App() {
             >
               <BookOpen size={13} /> Hướng dẫn Sử dụng
             </button>
-            <button
-              type="button"
-              className="bar-link-btn"
-              onClick={() => void handleResetDemoData()}
-              title="Đặt lại toàn bộ 28 Task (Ngày 1–7) về 0% (Todo)"
-            >
-              <RotateCcw size={13} /> Reset 28 Task về 0%
-            </button>
+            {isAdminMember(activeMember) && (
+              <button
+                type="button"
+                className="bar-link-btn"
+                onClick={() => void handleResetDemoData()}
+                title="Chỉ Admin (TV1) mới có quyền Reset 28 Task về 0%"
+              >
+                <RotateCcw size={13} /> Reset 28 Task về 0%
+              </button>
+            )}
             {envConfig.isConfigured && (
               <button
                 type="button"
@@ -1218,16 +1276,50 @@ export function App() {
                 <RefreshCw size={13} /> Đồng bộ ngay
               </button>
             )}
-            <button
-              type="button"
-              className="bar-link-btn highlight"
-              onClick={() => setIsSetupModalOpen(true)}
-            >
-              <Database size={13} />{' '}
-              {envConfig.isConfigured
-                ? 'Tài khoản & RLS'
-                : 'Cấu hình Supabase / Đổi vai trò'}
-            </button>
+            {activeMember ? (
+              <>
+                <span className="bar-user-pill">
+                  {isAdminMember(activeMember) ? (
+                    <Crown size={13} />
+                  ) : (
+                    <UserCheck size={13} />
+                  )}
+                  <strong>{getMemberName(activeMember)}</strong>
+                  {isAdminMember(activeMember) && (
+                    <span className="bar-admin-tag">ADMIN</span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  className="bar-link-btn"
+                  onClick={() => setIsNewTaskModalOpen(true)}
+                >
+                  <Plus size={13} /> Thêm Task
+                </button>
+                <button
+                  type="button"
+                  className="bar-link-btn highlight"
+                  onClick={() => setIsSetupModalOpen(true)}
+                >
+                  <KeyRound size={13} /> Đổi tài khoản
+                </button>
+                <button
+                  type="button"
+                  className="bar-link-btn"
+                  onClick={() => void handleSupabaseSignOut()}
+                >
+                  <LogOut size={13} /> Đăng xuất
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="bar-link-btn highlight"
+                onClick={() => setIsSetupModalOpen(true)}
+              >
+                <KeyRound size={13} /> Đăng nhập Thành viên
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1246,14 +1338,14 @@ export function App() {
         </div>
       )}
 
-      {/* Main Header */}
+      {/* Main Header (Removed old session-card role switcher) */}
       <header className="app-header">
-        <div className="container header-grid">
+        <div className="container">
           <div className="brand-block">
             <div className="eyebrow-row">
               <span className="eyebrow-pill">VHR-16 · 7-Day MVP Playbook</span>
               <span className="eyebrow-pill pill-outline">
-                4 Vertical Slices · RLS Enabled
+                4 Vertical Slices · Phân quyền theo Tài khoản & Admin
               </span>
             </div>
             <h1>MoveInMate AI — Team Progress Tracker</h1>
@@ -1263,110 +1355,29 @@ export function App() {
               cho 4 thành viên <strong>TV1–TV4</strong>.
             </p>
           </div>
-
-          {/* Active Member Session Switcher */}
-          <div className="session-card">
-            <div className="session-card-head">
-              <span className="session-label">
-                <Users size={15} /> Phiên làm việc hiện tại:
-              </span>
-              {activeMember ? (
-                <span className="session-active-badge">
-                  Đã xác thực ({activeMember})
-                </span>
-              ) : (
-                <span className="session-unauth-badge">
-                  <Lock size={12} /> Chưa xác thực / RLS Chặn
-                </span>
-              )}
-            </div>
-
-            <div
-              className="member-switcher"
-              role="group"
-              aria-label="Chọn thành viên đang đăng nhập"
-            >
-              {members.map((m) => (
-                <button
-                  key={m.memberCode}
-                  type="button"
-                  onClick={() => {
-                    setActiveMember(m.memberCode);
-                    setFilterMember(m.memberCode);
-                    setFilterRelation('owner');
-                    showToast(
-                      `Đang thao tác & xem lộ trình 7 ngày của ${m.displayName}`,
-                      'info',
-                    );
-                  }}
-                  style={
-                    {
-                      '--member-color': m.colorHex,
-                    } as React.CSSProperties
-                  }
-                  className={`member-switch-btn ${
-                    activeMember === m.memberCode ? 'active' : ''
-                  }`}
-                >
-                  <span className="member-switch-code">{m.memberCode}</span>
-                  <span className="member-switch-slice">
-                    {m.sliceName.split('&')[0]}
-                  </span>
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveMember(null);
-                  showToast(
-                    'Đã chuyển sang chế độ Khách ngoài (Kiểm thử chặn quyền RLS).',
-                    'warning',
-                  );
-                }}
-                className={`member-switch-btn unauth-btn ${
-                  activeMember === null ? 'active' : ''
-                }`}
-                title="Kiểm thử trạng thái người ngoài không thuộc workspace"
-              >
-                <Lock size={13} /> Khách ngoài
-              </button>
-            </div>
-
-            <div className="session-actions">
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => setIsNewTaskModalOpen(true)}
-                disabled={!activeMember}
-              >
-                <Plus size={15} /> Thêm Task mới
-              </button>
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                onClick={() => setIsSetupModalOpen(true)}
-              >
-                Chi tiết Auth & RLS
-              </button>
-            </div>
-          </div>
         </div>
       </header>
 
       <main className="container main-content">
-        {/* Unauthorized / RLS Warning Banner when activeMember is null */}
+        {/* Read-Only Banner when not logged in */}
         {activeMember === null && (
           <div className="rls-guard-banner" role="alert">
             <ShieldAlert size={22} />
-            <div>
-              <strong>
-                Chế độ Kiểm thử Bảo mật (Unauthorized / Cross-Workspace User):
-              </strong>{' '}
-              Tài khoản hiện tại không nằm trong danh sách thành viên được phân
-              quyền của workspace <code>{workspaceName}</code>. Mọi thao tác sửa
-              task, tick checklist và duyệt Review đều bị khoá bởi chính sách
-              phân quyền & Supabase RLS. Hãy chọn lại <strong>TV1–TV4</strong> ở
-              góc trên để tiếp tục làm việc.
+            <div className="rls-guard-content">
+              <div>
+                <strong>Chế độ Xem (Chưa đăng nhập tài khoản):</strong> Bạn có
+                thể xem tiến độ và lộ trình 7 ngày của tất cả thành viên. Để
+                tick checklist, đổi trạng thái hoặc duyệt Review trên phần công
+                việc của mình, vui lòng đăng nhập đúng tài khoản thành viên
+                (hoặc tài khoản Admin TV1).
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => setIsSetupModalOpen(true)}
+              >
+                <KeyRound size={14} /> Đăng nhập ngay
+              </button>
             </div>
           </div>
         )}
@@ -1882,7 +1893,26 @@ export function App() {
                           >
                             {task.title}
                           </h3>
-                          <span className="badge badge-code">{task.id}</span>
+                          <div className="daily-head-badges">
+                            {editPerm.allowed ? (
+                              isAdminMember(activeMember) &&
+                              task.ownerCode !== 'TV1' ? (
+                                <span className="perm-chip perm-admin">
+                                  <Crown size={11} /> Quyền Admin
+                                </span>
+                              ) : (
+                                <span className="perm-chip perm-owner">
+                                  <CheckCircle2 size={11} /> Của bạn (
+                                  {task.ownerCode})
+                                </span>
+                              )
+                            ) : (
+                              <span className="perm-chip perm-locked">
+                                <Lock size={11} /> Chỉ {task.ownerCode} / Admin
+                              </span>
+                            )}
+                            <span className="badge badge-code">{task.id}</span>
+                          </div>
                         </div>
                         <p className="daily-card-desc">{task.description}</p>
 
@@ -2662,13 +2692,12 @@ export function App() {
             <UserGuideView
               members={members}
               onJumpToMemberRoadmap={(code) => {
-                setActiveMember(code);
                 setFilterMember(code);
                 setFilterRelation('owner');
                 setFilterDay('ALL');
                 setActiveTab('daily');
                 showToast(
-                  `Đã chuyển sang Lộ trình 7 Ngày của ${getMemberName(code)}`,
+                  `Đang xem Lộ trình 7 Ngày của ${getMemberName(code)}`,
                   'info',
                 );
               }}
@@ -2724,7 +2753,6 @@ export function App() {
           currentMember={activeMember}
           authEmail={authEmail}
           onClose={() => setIsSetupModalOpen(false)}
-          onSelectDemoMember={(code) => setActiveMember(code)}
           onSupabaseSignIn={handleSupabaseSignIn}
           onSupabaseSignOut={handleSupabaseSignOut}
         />

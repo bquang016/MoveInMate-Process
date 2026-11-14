@@ -146,17 +146,17 @@ export const UserGuideView: React.FC<UserGuideViewProps> = ({
           <div className="guide-step-card">
             <div className="step-num">Bước 1</div>
             <h4>
-              <KeyRound size={16} /> Đăng nhập & Chọn đúng Thành viên
+              <KeyRound size={16} /> Đăng nhập Tài khoản Cá nhân
             </h4>
             <p>
-              Bấm nút <strong>Tài khoản & RLS</strong> ở góc phải trên cùng để
-              đăng nhập bằng email của bạn, hoặc chọn nhanh nút{' '}
-              <code>TV1</code>, <code>TV2</code>, <code>TV3</code>,{' '}
-              <code>TV4</code> tại khung <strong>Phiên làm việc hiện tại</strong>.
+              Bấm nút <strong>Đăng nhập Thành viên</strong> ở thanh trên cùng,
+              chọn thẻ tên của bạn (<code>TV1</code>–<code>TV4</code>) và nhập
+              mật khẩu để mở khoá quyền tương tác.
             </p>
             <div className="guide-tip-box">
-              Khi chọn tên mình, hệ thống tự động lọc ra đúng 7 ngày công việc
-              của bạn và cấp quyền chỉnh sửa các task bạn làm Owner/Reviewer.
+              Mỗi thành viên chỉ tương tác được trên task của chính mình; riêng{' '}
+              <strong>Admin (TV1 · Bùi Đăng Quang)</strong> có toàn quyền tương
+              tác trên mọi task.
             </div>
           </div>
 

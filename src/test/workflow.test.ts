@@ -95,13 +95,16 @@ describe('MoveInMate Workflow, Progress & RLS Permission Logic (28 Daily Tasks)'
     expect(allowedDone.allowed).toBe(true);
   });
 
-  it('enforces Owner/Reviewer permissions and blocks unauthorized or cross-workspace actors', () => {
-    const taskTv1D3 = SEED_TASKS.find((t) => t.id === 'T-TV1-D3')!;
+  it('enforces strict per-member ownership, Reviewer permissions, and full Admin (TV1) access', () => {
+    const taskTv2D3 = SEED_TASKS.find((t) => t.id === 'T-TV2-D3')!; // Owner=TV2, Reviewer=TV3
+    const taskTv1D3 = SEED_TASKS.find((t) => t.id === 'T-TV1-D3')!; // Owner=TV1, Reviewer=TV4
 
-    expect(canMemberPerformAction(taskTv1D3, null, 'edit_task').allowed).toBe(
+    // 1. Unauthenticated visitor cannot edit
+    expect(canMemberPerformAction(taskTv2D3, null, 'edit_task').allowed).toBe(
       false,
     );
 
+    // 2. Cross-workspace is blocked
     const crossWs = canMemberPerformAction(
       taskTv1D3,
       'TV1',
@@ -111,11 +114,37 @@ describe('MoveInMate Workflow, Progress & RLS Permission Logic (28 Daily Tasks)'
     expect(crossWs.allowed).toBe(false);
     expect(crossWs.reason).toContain('Cross-Workspace');
 
+    // 3. Regular member (TV3, TV4) CANNOT edit or tick TV2's task
     expect(
-      canMemberPerformAction(taskTv1D3, 'TV1', 'approve_review').allowed,
+      canMemberPerformAction(taskTv2D3, 'TV3', 'toggle_criterion').allowed,
     ).toBe(false);
+    expect(canMemberPerformAction(taskTv2D3, 'TV4', 'edit_task').allowed).toBe(
+      false,
+    );
+
+    // 4. Owner (TV2) CAN edit and tick TV2's own task, but CANNOT approve review on own task
     expect(
-      canMemberPerformAction(taskTv1D3, 'TV4', 'approve_review').allowed,
+      canMemberPerformAction(taskTv2D3, 'TV2', 'toggle_criterion').allowed,
+    ).toBe(true);
+    expect(
+      canMemberPerformAction(taskTv2D3, 'TV2', 'approve_review').allowed,
+    ).toBe(false);
+
+    // 5. Assigned Reviewer CAN approve review on TV2's Day 3 task
+    expect(
+      canMemberPerformAction(
+        taskTv2D3,
+        taskTv2D3.reviewerCode,
+        'approve_review',
+      ).allowed,
+    ).toBe(true);
+
+    // 6. Admin (TV1) CAN edit, tick, and approve review on ANY member's task
+    expect(
+      canMemberPerformAction(taskTv2D3, 'TV1', 'toggle_criterion').allowed,
+    ).toBe(true);
+    expect(
+      canMemberPerformAction(taskTv2D3, 'TV1', 'approve_review').allowed,
     ).toBe(true);
   });
 

@@ -140,6 +140,10 @@ export function calculateProjectSummary(
   };
 }
 
+export function isAdminMember(actorCode: MemberCode | null): boolean {
+  return actorCode === 'TV1';
+}
+
 export function canMemberPerformAction(
   task: TrackerTask,
   actorCode: MemberCode | null,
@@ -155,7 +159,7 @@ export function canMemberPerformAction(
     return {
       allowed: false,
       reason:
-        'Người dùng chưa xác thực hoặc không thuộc nhóm TV1–TV4. Vui lòng đăng nhập tài khoản thành viên.',
+        'Bạn đang ở Chế độ Xem (Chưa đăng nhập). Vui lòng đăng nhập tài khoản thành viên để tương tác.',
     };
   }
 
@@ -167,26 +171,26 @@ export function canMemberPerformAction(
     };
   }
 
+  // Admin (TV1 · Bùi Đăng Quang) has full permission across all tasks and reviews
+  if (isAdminMember(actorCode)) {
+    return { allowed: true };
+  }
+
   if (action === 'approve_review' || action === 'request_changes') {
     if (actorCode !== task.reviewerCode) {
       return {
         allowed: false,
-        reason: `Chỉ Reviewer được phân công (${task.reviewerCode}) mới có quyền xác nhận duyệt hoặc yêu cầu chỉnh sửa task ${task.id}.`,
+        reason: `Chỉ Reviewer được phân công (${task.reviewerCode}) hoặc Admin (TV1) mới có quyền xác nhận duyệt hoặc yêu cầu chỉnh sửa task ${task.id}.`,
       };
     }
     return { allowed: true };
   }
 
-  const isCollaborator =
-    actorCode === task.ownerCode ||
-    actorCode === task.reviewerCode ||
-    task.supporterCodes.includes(actorCode) ||
-    actorCode === 'TV1'; // TV1 is Integration Lead
-
-  if (!isCollaborator) {
+  // Strict Owner-only interaction for checklist, status, and task editing (unless Admin TV1)
+  if (actorCode !== task.ownerCode) {
     return {
       allowed: false,
-      reason: `Thành viên ${actorCode} không phải Owner (${task.ownerCode}), Reviewer (${task.reviewerCode}) hoặc người hỗ trợ của task này.`,
+      reason: `Phân quyền: Tài khoản ${actorCode} chỉ được xem task này. Chỉ Owner (${task.ownerCode}) hoặc Admin (TV1) mới được phép tương tác.`,
     };
   }
 
