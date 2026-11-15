@@ -40,6 +40,14 @@ import {
   SEED_TEAM_MEMBERS,
 } from './data/seedData';
 import {
+  buildBlockerDiscordPayload,
+  buildHandoverDiscordPayload,
+  buildReviewerDecisionDiscordPayload,
+  buildStatusChangeDiscordPayload,
+  isStatusRollback,
+  sendDiscordNotification,
+} from './lib/discord';
+import {
   fetchWorkspaceDataFromSupabase,
   getSupabaseClient,
   resolveSupabaseEnv,
@@ -439,36 +447,40 @@ export function App() {
 
       const nextCompleted = !targetCrit.isCompleted;
       const nowIso = new Date().toISOString();
+      const updatedCriteria = targetTask.criteria.map((c) =>
+        c.id === criterionId
+          ? {
+              ...c,
+              isCompleted: nextCompleted,
+              completedBy: nextCompleted ? activeMember : null,
+              completedAt: nextCompleted ? nowIso : null,
+            }
+          : c,
+      );
+      const allUnchecked = updatedCriteria.every((c) => !c.isCompleted);
+
+      // Auto-status rules:
+      // 1. If task was 'done' and a mandatory criterion is unchecked -> revert to 'review'
+      // 2. If task was 'todo' and a criterion is checked -> auto-promote to 'in_progress'
+      // 3. If task was 'in_progress' and user unticks so all criteria are unchecked -> auto-revert back to 'todo'
+      const nextTaskStatus: TaskStatus =
+        targetTask.status === 'done' && !nextCompleted && targetCrit.isMandatory
+          ? 'review'
+          : targetTask.status === 'todo' && nextCompleted
+          ? 'in_progress'
+          : targetTask.status === 'in_progress' && !nextCompleted && allUnchecked
+          ? 'todo'
+          : targetTask.status;
+
+      const updatedTaskSnapshot: TrackerTask = {
+        ...targetTask,
+        status: nextTaskStatus,
+        criteria: updatedCriteria,
+        updatedAt: nowIso,
+      };
 
       setTasks((prev) =>
-        prev.map((task) => {
-          if (task.id !== taskId) return task;
-          const updatedCriteria = task.criteria.map((c) =>
-            c.id === criterionId
-              ? {
-                  ...c,
-                  isCompleted: nextCompleted,
-                  completedBy: nextCompleted ? activeMember : null,
-                  completedAt: nextCompleted ? nowIso : null,
-                }
-              : c,
-          );
-          // If task was 'done' and a mandatory criterion is unchecked, revert status to 'review'
-          // If task was 'todo' and a criterion is checked, auto-promote to 'in_progress' (supports working ahead on Day 2, 3...)
-          const nextTaskStatus: TaskStatus =
-            task.status === 'done' && !nextCompleted && targetCrit.isMandatory
-              ? 'review'
-              : task.status === 'todo' && nextCompleted
-              ? 'in_progress'
-              : task.status;
-
-          return {
-            ...task,
-            status: nextTaskStatus,
-            criteria: updatedCriteria,
-            updatedAt: nowIso,
-          };
-        }),
+        prev.map((task) => (task.id === taskId ? updatedTaskSnapshot : task)),
       );
 
       appendAudit(
@@ -476,8 +488,32 @@ export function App() {
         'criteria_toggled',
         `${activeMember} đã ${
           nextCompleted ? 'tick hoàn thành' : 'bỏ tick'
-        } tiêu chí "${targetCrit.label}" của task ${taskId}.`,
+        } tiêu chí "${targetCrit.label}" của task ${taskId}${
+          nextTaskStatus !== targetTask.status
+            ? ` (Trạng thái tự động chuyển sang ${STATUS_META[nextTaskStatus].shortLabel})`
+            : ''
+        }.`,
       );
+
+      if (nextTaskStatus !== targetTask.status && activeMember) {
+        void sendDiscordNotification(
+          buildStatusChangeDiscordPayload({
+            task: updatedTaskSnapshot,
+            prevStatus: targetTask.status,
+            nextStatus: nextTaskStatus,
+            actorCode: activeMember,
+            actorName: getMemberName(activeMember),
+            ownerName: getMemberName(targetTask.ownerCode),
+            reviewerName: getMemberName(targetTask.reviewerCode),
+            note:
+              nextTaskStatus === 'todo'
+                ? `Đã bỏ tick tiêu chí "${targetCrit.label}" — Tự động hoàn tác trạng thái về Todo (Bình thường).`
+                : nextTaskStatus === 'in_progress'
+                ? `Bắt đầu tick tiêu chí "${targetCrit.label}" — Tự động chuyển sang In Progress.`
+                : `Bỏ tick tiêu chí bắt buộc "${targetCrit.label}" — Tự động chuyển từ Done về Review.`,
+          }),
+        );
+      }
 
       if (supabaseClient && envConfig.isConfigured) {
         void supabaseClient
@@ -488,6 +524,13 @@ export function App() {
             completed_at: nextCompleted ? nowIso : null,
           })
           .eq('id', criterionId);
+
+        if (nextTaskStatus !== targetTask.status) {
+          void supabaseClient
+            .from('tasks')
+            .update({ status: nextTaskStatus })
+            .eq('id', taskId);
+        }
       } else {
         window.setTimeout(broadcastDemoSync, 50);
       }
@@ -495,6 +538,7 @@ export function App() {
     [
       tasks,
       activeMember,
+      getMemberName,
       showToast,
       appendAudit,
       supabaseClient,
@@ -627,30 +671,69 @@ export function App() {
         return { ok: true };
       }
 
+      const rollback = isStatusRollback(prevStatus, nextStatus);
       const nowIso = new Date().toISOString();
+      const updatedTaskSnapshot: TrackerTask = {
+        ...targetTask,
+        status: nextStatus,
+        reviewerApproved:
+          nextStatus === 'todo' ? false : targetTask.reviewerApproved,
+        reviewerApprovedBy:
+          nextStatus === 'todo' ? null : targetTask.reviewerApprovedBy,
+        reviewerApprovedAt:
+          nextStatus === 'todo' ? null : targetTask.reviewerApprovedAt,
+        updatedAt: nowIso,
+      };
+
       setTasks((prev) =>
-        prev.map((t) =>
-          t.id === taskId
-            ? { ...t, status: nextStatus, updatedAt: nowIso }
-            : t,
-        ),
+        prev.map((t) => (t.id === taskId ? updatedTaskSnapshot : t)),
       );
 
       const extraNote = options?.note ? ` (${options.note})` : '';
       appendAudit(
         taskId,
         'status_changed',
-        `${activeMember} chuyển trạng thái ${taskId} từ ${STATUS_META[prevStatus].shortLabel} sang ${STATUS_META[nextStatus].shortLabel}${extraNote}.`,
+        `${activeMember} ${
+          rollback ? 'hoàn tác trạng thái' : 'chuyển trạng thái'
+        } ${taskId} từ ${STATUS_META[prevStatus].shortLabel} về ${
+          STATUS_META[nextStatus].shortLabel
+        }${extraNote}.`,
       );
       showToast(
-        `Đã chuyển ${taskId} sang ${STATUS_META[nextStatus].shortLabel}.`,
-        'success',
+        rollback
+          ? `Đã hoàn tác trạng thái ${taskId} từ ${STATUS_META[prevStatus].shortLabel} về lại ${STATUS_META[nextStatus].shortLabel}.`
+          : `Đã chuyển ${taskId} sang ${STATUS_META[nextStatus].shortLabel} (Đã đẩy thông báo Discord).`,
+        rollback ? 'info' : 'success',
       );
+
+      if (activeMember) {
+        void sendDiscordNotification(
+          buildStatusChangeDiscordPayload({
+            task: updatedTaskSnapshot,
+            prevStatus,
+            nextStatus,
+            actorCode: activeMember,
+            actorName: getMemberName(activeMember),
+            ownerName: getMemberName(targetTask.ownerCode),
+            reviewerName: getMemberName(targetTask.reviewerCode),
+            note: options?.note,
+          }),
+        );
+      }
 
       if (supabaseClient && envConfig.isConfigured) {
         void supabaseClient
           .from('tasks')
-          .update({ status: nextStatus })
+          .update({
+            status: nextStatus,
+            ...(nextStatus === 'todo'
+              ? {
+                  reviewer_approved: false,
+                  reviewer_approved_by: null,
+                  reviewer_approved_at: null,
+                }
+              : {}),
+          })
           .eq('id', taskId);
       } else {
         window.setTimeout(broadcastDemoSync, 50);
@@ -661,6 +744,7 @@ export function App() {
     [
       tasks,
       activeMember,
+      getMemberName,
       showToast,
       appendAudit,
       supabaseClient,
@@ -728,10 +812,23 @@ export function App() {
 
       showToast(
         approved
-          ? `Reviewer ${activeMember} đã Approve task ${taskId}!`
+          ? `Reviewer ${activeMember} đã Approve task ${taskId} (Đã thông báo Discord)!`
           : `Reviewer ${activeMember} đã gửi yêu cầu chỉnh sửa cho ${taskId}.`,
         approved ? 'success' : 'warning',
       );
+
+      if (activeMember) {
+        void sendDiscordNotification(
+          buildReviewerDecisionDiscordPayload({
+            task: targetTask,
+            approved,
+            note: finalNote,
+            actorCode: activeMember,
+            actorName: getMemberName(activeMember),
+            ownerName: getMemberName(targetTask.ownerCode),
+          }),
+        );
+      }
 
       if (supabaseClient && envConfig.isConfigured) {
         void supabaseClient
@@ -752,6 +849,7 @@ export function App() {
     [
       tasks,
       activeMember,
+      getMemberName,
       showToast,
       appendAudit,
       supabaseClient,
@@ -815,6 +913,17 @@ export function App() {
           : `${activeMember} cập nhật thông tin phân công/deadline/ghi chú của ${taskId}.`,
       );
 
+      if (blockerChanged && activeMember) {
+        void sendDiscordNotification(
+          buildBlockerDiscordPayload({
+            task: { ...targetTask, ...updates },
+            blockerText: updates.blocker ?? '',
+            actorCode: activeMember,
+            actorName: getMemberName(activeMember),
+          }),
+        );
+      }
+
       if (supabaseClient && envConfig.isConfigured) {
         void supabaseClient
           .from('tasks')
@@ -839,6 +948,7 @@ export function App() {
     [
       tasks,
       activeMember,
+      getMemberName,
       showToast,
       appendAudit,
       supabaseClient,
@@ -970,6 +1080,9 @@ export function App() {
         return;
       }
 
+      const prevHandoverStatus = target.status;
+      if (prevHandoverStatus === nextStatus) return;
+
       const nowIso = new Date().toISOString();
       setHandovers((prev) =>
         prev.map((h) =>
@@ -989,6 +1102,16 @@ export function App() {
         'success',
       );
 
+      void sendDiscordNotification(
+        buildHandoverDiscordPayload({
+          handover: target,
+          prevStatus: prevHandoverStatus,
+          nextStatus,
+          actorCode: activeMember,
+          actorName: getMemberName(activeMember),
+        }),
+      );
+
       if (supabaseClient && envConfig.isConfigured) {
         void supabaseClient
           .from('handovers')
@@ -1000,6 +1123,7 @@ export function App() {
     },
     [
       activeMember,
+      getMemberName,
       handovers,
       appendAudit,
       showToast,
@@ -1997,40 +2121,101 @@ export function App() {
                           )}
 
                           {task.status === 'in_progress' && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={!editPerm.allowed}
+                                className="btn btn-warning btn-sm"
+                                onClick={() =>
+                                  handleChangeStatus(task.id, 'review', {
+                                    confirmIncompleteForReview: true,
+                                  })
+                                }
+                              >
+                                <Send size={14} /> Gửi {task.reviewerCode} Review
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!editPerm.allowed}
+                                className="btn btn-outline btn-sm"
+                                title="Nếu lỡ bấm nhầm Bắt đầu làm, bấm vào đây để trả task về lại Todo (Chưa mở)"
+                                onClick={() =>
+                                  handleChangeStatus(task.id, 'todo', {
+                                    note: 'Hoàn tác trạng thái từ In Progress về lại Todo (Chưa mở)',
+                                  })
+                                }
+                              >
+                                <RotateCcw size={13} /> Đặt lại về Todo
+                              </button>
+                            </>
+                          )}
+
+                          {task.status === 'review' && (
+                            <>
+                              {!task.reviewerApproved && (
+                                <button
+                                  type="button"
+                                  disabled={!reviewPerm.allowed}
+                                  className="btn btn-success btn-sm"
+                                  onClick={() =>
+                                    handleReviewerDecision(
+                                      task.id,
+                                      true,
+                                      `Đã duyệt đầu ra Ngày ${task.dayNumber}`,
+                                    )
+                                  }
+                                  title={
+                                    reviewPerm.allowed
+                                      ? 'Duyệt task này'
+                                      : `Chuyển sang vai trò ${task.reviewerCode} để duyệt`
+                                  }
+                                >
+                                  <CheckCircle2 size={14} /> {task.reviewerCode}{' '}
+                                  Bấm Approve
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                disabled={!editPerm.allowed}
+                                className="btn btn-outline btn-sm"
+                                title="Thu hồi yêu cầu Review về lại trạng thái Đang làm (In Progress)"
+                                onClick={() =>
+                                  handleChangeStatus(task.id, 'in_progress', {
+                                    note: 'Thu hồi yêu cầu Review để quay về In Progress (Đang làm)',
+                                  })
+                                }
+                              >
+                                <RotateCcw size={13} /> Về Đang làm
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!editPerm.allowed}
+                                className="btn btn-outline btn-sm"
+                                title="Hoàn tác trạng thái về lại Todo (Chưa mở)"
+                                onClick={() =>
+                                  handleChangeStatus(task.id, 'todo', {
+                                    note: 'Hoàn tác trạng thái từ Review về lại Todo (Chưa mở)',
+                                  })
+                                }
+                              >
+                                <RotateCcw size={13} /> Về Todo
+                              </button>
+                            </>
+                          )}
+
+                          {task.status === 'done' && (
                             <button
                               type="button"
                               disabled={!editPerm.allowed}
-                              className="btn btn-warning btn-sm"
+                              className="btn btn-outline btn-sm"
+                              title="Mở lại task từ Done về lại trạng thái Đang làm (In Progress)"
                               onClick={() =>
-                                handleChangeStatus(task.id, 'review', {
-                                  confirmIncompleteForReview: true,
+                                handleChangeStatus(task.id, 'in_progress', {
+                                  note: 'Mở lại task từ Done về lại In Progress (Đang làm)',
                                 })
                               }
                             >
-                              <Send size={14} /> Gửi {task.reviewerCode} Review
-                            </button>
-                          )}
-
-                          {task.status === 'review' && !task.reviewerApproved && (
-                            <button
-                              type="button"
-                              disabled={!reviewPerm.allowed}
-                              className="btn btn-success btn-sm"
-                              onClick={() =>
-                                handleReviewerDecision(
-                                  task.id,
-                                  true,
-                                  `Đã duyệt đầu ra Ngày ${task.dayNumber}`,
-                                )
-                              }
-                              title={
-                                reviewPerm.allowed
-                                  ? 'Duyệt task này'
-                                  : `Chuyển sang vai trò ${task.reviewerCode} để duyệt`
-                              }
-                            >
-                              <CheckCircle2 size={14} /> {task.reviewerCode} Bấm
-                              Approve
+                              <RotateCcw size={13} /> Mở lại (Về Đang làm)
                             </button>
                           )}
 

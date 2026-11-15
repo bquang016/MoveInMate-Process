@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { SEED_TASKS } from '../data/seedData';
+import {
+  buildStatusChangeDiscordPayload,
+  isStatusRollback,
+} from '../lib/discord';
 import { resolveSupabaseEnv } from '../lib/supabase';
 import {
   calculateMemberProgress,
@@ -161,5 +165,63 @@ describe('MoveInMate Workflow, Progress & RLS Permission Logic (28 Daily Tasks)'
       VITE_SUPABASE_ANON_KEY: '',
     });
     expect(emptyConfig.isConfigured).toBe(false);
+  });
+
+  it('builds custom Discord Webhook embeds for forward transitions and rollback/revert transitions', () => {
+    const taskTv1D1 = SEED_TASKS.find((t) => t.id === 'T-TV1-D1')!;
+
+    // Forward: todo -> in_progress
+    expect(isStatusRollback('todo', 'in_progress')).toBe(false);
+    const startPayload = buildStatusChangeDiscordPayload({
+      task: { ...taskTv1D1, status: 'in_progress' },
+      prevStatus: 'todo',
+      nextStatus: 'in_progress',
+      actorCode: 'TV1',
+      actorName: 'TV1 · Bùi Đăng Quang',
+      ownerName: 'TV1 · Bùi Đăng Quang',
+      reviewerName: 'TV2 · Đinh Trần Nguyên',
+    });
+    expect(startPayload.embeds[0].title).toContain('[Bắt đầu làm]');
+
+    // Forward: in_progress -> review
+    const reviewPayload = buildStatusChangeDiscordPayload({
+      task: { ...taskTv1D1, status: 'review' },
+      prevStatus: 'in_progress',
+      nextStatus: 'review',
+      actorCode: 'TV1',
+      actorName: 'TV1 · Bùi Đăng Quang',
+      ownerName: 'TV1 · Bùi Đăng Quang',
+      reviewerName: 'TV2 · Đinh Trần Nguyên',
+    });
+    expect(reviewPayload.embeds[0].title).toContain('[Cần Review]');
+    expect(reviewPayload.content).toContain('TV2 · Đinh Trần Nguyên');
+
+    // Rollback / Revert: in_progress -> todo (lỡ bấm nhầm chuyển về bình thường)
+    expect(isStatusRollback('in_progress', 'todo')).toBe(true);
+    const revertTodoPayload = buildStatusChangeDiscordPayload({
+      task: { ...taskTv1D1, status: 'todo' },
+      prevStatus: 'in_progress',
+      nextStatus: 'todo',
+      actorCode: 'TV1',
+      actorName: 'TV1 · Bùi Đăng Quang',
+      ownerName: 'TV1 · Bùi Đăng Quang',
+      reviewerName: 'TV2 · Đinh Trần Nguyên',
+    });
+    expect(revertTodoPayload.embeds[0].title).toContain('[Hoàn tác về Todo]');
+
+    // Rollback / Revert: review -> in_progress (thu hồi yêu cầu review)
+    expect(isStatusRollback('review', 'in_progress')).toBe(true);
+    const recallReviewPayload = buildStatusChangeDiscordPayload({
+      task: { ...taskTv1D1, status: 'in_progress' },
+      prevStatus: 'review',
+      nextStatus: 'in_progress',
+      actorCode: 'TV1',
+      actorName: 'TV1 · Bùi Đăng Quang',
+      ownerName: 'TV1 · Bùi Đăng Quang',
+      reviewerName: 'TV2 · Đinh Trần Nguyên',
+    });
+    expect(recallReviewPayload.embeds[0].title).toContain(
+      '[Thu hồi Yêu cầu Review]',
+    );
   });
 });
