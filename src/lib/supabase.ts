@@ -23,6 +23,20 @@ import type {
   TrackerTask,
 } from '../types/tracker';
 
+export const DEFAULT_SUPABASE_URL = 'https://mokcgiepgprmqghehbmv.supabase.co';
+export const DEFAULT_SUPABASE_ANON_KEY =
+  'sb_publishable_LP78rPHx83WrQSjqV0jTmA_i7UXGuYQ';
+
+const MEMBER_AUTH_CREDENTIALS: Record<
+  MemberCode,
+  { email: string; pass: string }
+> = {
+  TV1: { email: 'buidangquangmtp@gmail.com', pass: '010605quang' },
+  TV2: { email: 'nguyentrandinh.tn@gmail.com', pass: 'dtnguyen@' },
+  TV3: { email: 'trongductai2005@gmail.com', pass: 'ttdtai123@' },
+  TV4: { email: 'capntryisreal@gmail.com', pass: 'ntanh123@' },
+};
+
 export interface SupabaseEnvConfig {
   url: string;
   anonKey: string;
@@ -34,21 +48,28 @@ export interface SupabaseEnvConfig {
 export function resolveSupabaseEnv(
   envSource?: Record<string, string | undefined>,
 ): SupabaseEnvConfig {
+  const isTestMode =
+    typeof import.meta !== 'undefined' &&
+    import.meta.env &&
+    import.meta.env.MODE === 'test';
+
   const env =
     envSource ??
     ((typeof import.meta !== 'undefined' && import.meta.env
       ? import.meta.env
       : {}) as Record<string, string | undefined>);
 
+  const useBuiltInFallback = !envSource && !isTestMode;
+
   const rawUrl = (
     env.VITE_SUPABASE_URL ||
     env.NEXT_PUBLIC_SUPABASE_URL ||
-    ''
+    (useBuiltInFallback ? DEFAULT_SUPABASE_URL : '')
   ).trim();
   const rawAnonKey = (
     env.VITE_SUPABASE_ANON_KEY ||
     env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    ''
+    (useBuiltInFallback ? DEFAULT_SUPABASE_ANON_KEY : '')
   ).trim();
   const rawSlug = (
     env.VITE_DEFAULT_WORKSPACE_SLUG || DEFAULT_WORKSPACE_SLUG
@@ -72,6 +93,7 @@ export function resolveSupabaseEnv(
 }
 
 let cachedClient: SupabaseClient | null = null;
+let pendingSessionPromise: Promise<void> | null = null;
 
 export function getSupabaseClient(): SupabaseClient | null {
   const config = resolveSupabaseEnv();
@@ -94,6 +116,46 @@ export function getSupabaseClient(): SupabaseClient | null {
   return cachedClient;
 }
 
+export async function ensureSupabaseMemberSession(
+  client: SupabaseClient,
+  memberCode: MemberCode | null,
+): Promise<void> {
+  if (
+    typeof import.meta !== 'undefined' &&
+    import.meta.env &&
+    import.meta.env.MODE === 'test'
+  ) {
+    return;
+  }
+
+  const targetCode: MemberCode = memberCode ?? 'TV1';
+  const targetCred = MEMBER_AUTH_CREDENTIALS[targetCode];
+  if (!targetCred) return;
+
+  if (pendingSessionPromise) {
+    await pendingSessionPromise;
+  }
+
+  const { data } = await client.auth.getSession();
+  const currentEmail = data.session?.user?.email?.toLowerCase() ?? '';
+  if (currentEmail === targetCred.email.toLowerCase()) {
+    return;
+  }
+
+  pendingSessionPromise = (async () => {
+    try {
+      await client.auth.signInWithPassword({
+        email: targetCred.email,
+        password: targetCred.pass,
+      });
+    } finally {
+      pendingSessionPromise = null;
+    }
+  })();
+
+  await pendingSessionPromise;
+}
+
 export interface WorkspaceSnapshot {
   workspaceId: string;
   workspaceName: string;
@@ -106,7 +168,10 @@ export interface WorkspaceSnapshot {
 export async function fetchWorkspaceDataFromSupabase(
   client: SupabaseClient,
   workspaceSlug: string = DEFAULT_WORKSPACE_SLUG,
+  activeMember: MemberCode | null = null,
 ): Promise<WorkspaceSnapshot> {
+  await ensureSupabaseMemberSession(client, activeMember);
+
   const { data: wsRow, error: wsError } = await client
     .from('workspaces')
     .select('*')

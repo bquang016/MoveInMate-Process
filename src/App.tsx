@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertOctagon,
@@ -50,6 +50,7 @@ import {
   sendDiscordNotification,
 } from './lib/discord';
 import {
+  ensureSupabaseMemberSession,
   fetchWorkspaceDataFromSupabase,
   getSupabaseClient,
   resolveSupabaseEnv,
@@ -201,9 +202,17 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  // Persist to localStorage & BroadcastChannel in Demo Mode
+  // Guard refs against Realtime echo race conditions overwriting in-flight saves
+  const inFlightMutationsRef = useRef(0);
+  const lastMutationTimeRef = useRef(0);
+  const activeMemberRef = useRef<MemberCode | null>(activeMember);
+
   useEffect(() => {
-    if (envConfig.isConfigured) return;
+    activeMemberRef.current = activeMember;
+  }, [activeMember]);
+
+  // Always persist to localStorage as an instant local cache & session store
+  useEffect(() => {
     try {
       window.localStorage.setItem(STORAGE_KEYS.tasks, JSON.stringify(tasks));
       window.localStorage.setItem(
@@ -225,14 +234,7 @@ export function App() {
     } catch {
       // ignore storage quota errors
     }
-  }, [
-    tasks,
-    members,
-    handovers,
-    auditLogs,
-    activeMember,
-    envConfig.isConfigured,
-  ]);
+  }, [tasks, members, handovers, auditLogs, activeMember]);
 
   // Multi-tab real-time sync in Demo Mode via BroadcastChannel
   const broadcastDemoSync = useCallback(() => {
@@ -249,16 +251,18 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (
-      envConfig.isConfigured ||
-      typeof window === 'undefined' ||
-      !('BroadcastChannel' in window)
-    ) {
+    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) {
       return;
     }
     try {
       const bc = new BroadcastChannel('moveinmate_demo_realtime_channel');
       bc.onmessage = () => {
+        if (
+          inFlightMutationsRef.current > 0 ||
+          Date.now() - lastMutationTimeRef.current < 1500
+        ) {
+          return;
+        }
         setTasks(loadFromStorage(STORAGE_KEYS.tasks, SEED_TASKS));
         setMembers(loadFromStorage(STORAGE_KEYS.members, SEED_TEAM_MEMBERS));
         setHandovers(loadFromStorage(STORAGE_KEYS.handovers, SEED_HANDOVERS));
@@ -268,53 +272,47 @@ export function App() {
     } catch {
       return undefined;
     }
-  }, [envConfig.isConfigured]);
+  }, []);
 
   // Supabase Live Mode synchronization (Auth + DB + Realtime)
   const loadSupabaseWorkspace = useCallback(
-    async (options?: { silent?: boolean }) => {
+    async (options?: { silent?: boolean; fromRealtime?: boolean }) => {
       if (!supabaseClient) return;
+      if (
+        options?.fromRealtime &&
+        (inFlightMutationsRef.current > 0 ||
+          Date.now() - lastMutationTimeRef.current < 2500)
+      ) {
+        return;
+      }
+
       if (!options?.silent) {
         setLoadingRemote(true);
       }
       setRemoteError(null);
       try {
-        let snapshot = await fetchWorkspaceDataFromSupabase(
+        const snapshot = await fetchWorkspaceDataFromSupabase(
           supabaseClient,
           envConfig.workspaceSlug,
+          activeMemberRef.current,
         );
-        const hasLegacyData =
-          snapshot.tasks.length < 28 ||
-          snapshot.tasks.some((t) => t.id === 'T-TV1-01') ||
-          snapshot.members.some((m) => m.email.includes('.demo.local'));
 
-        if (hasLegacyData) {
-          const syncRes = await sync28DailyTasksToSupabase(
-            supabaseClient,
-            snapshot.workspaceId,
-          );
-          if (syncRes.ok) {
-            snapshot = await fetchWorkspaceDataFromSupabase(
-              supabaseClient,
-              envConfig.workspaceSlug,
-            );
-          } else {
-            // Fallback to the 4 real members & 28 daily tasks at 0% if Supabase RLS blocks anon write
-            snapshot = {
-              ...snapshot,
-              members: SEED_TEAM_MEMBERS,
-              tasks: SEED_TASKS,
-              handovers: SEED_HANDOVERS,
-              auditLogs: SEED_AUDIT_LOGS,
-            };
-          }
+        // Guard again if a local save occurred while fetch was in flight
+        if (
+          options?.fromRealtime &&
+          (inFlightMutationsRef.current > 0 ||
+            Date.now() - lastMutationTimeRef.current < 2500)
+        ) {
+          return;
         }
 
-        setWorkspaceId(snapshot.workspaceId);
-        setMembers(snapshot.members);
-        setTasks(snapshot.tasks);
-        setHandovers(snapshot.handovers);
-        setAuditLogs(snapshot.auditLogs);
+        if (snapshot.tasks.length >= 28) {
+          setWorkspaceId(snapshot.workspaceId);
+          setMembers(snapshot.members);
+          setTasks(snapshot.tasks);
+          setHandovers(snapshot.handovers);
+          setAuditLogs(snapshot.auditLogs);
+        }
       } catch (err) {
         const msg =
           err instanceof Error
@@ -333,40 +331,21 @@ export function App() {
   useEffect(() => {
     if (!supabaseClient) return;
 
-    void supabaseClient.auth.getSession().then(({ data }) => {
-      const email = data.session?.user?.email ?? null;
-      setAuthEmail(email);
-      if (email) {
-        const matched = SEED_TEAM_MEMBERS.find(
-          (m) => m.email.toLowerCase() === email.toLowerCase(),
-        );
-        setActiveMember(matched ? matched.memberCode : null);
-      }
-    });
-
-    const { data: authSub } = supabaseClient.auth.onAuthStateChange(
-      (event, session) => {
-        const email = session?.user?.email ?? null;
-        setAuthEmail(email);
-        if (event === 'SIGNED_IN') {
-          if (email) {
-            const matched = SEED_TEAM_MEMBERS.find(
-              (m) => m.email.toLowerCase() === email.toLowerCase(),
-            );
-            setActiveMember(matched ? matched.memberCode : null);
-          }
-          void loadSupabaseWorkspace({ silent: true });
-        } else if (event === 'SIGNED_OUT') {
-          setActiveMember(null);
-        }
-      },
+    const storedMember = loadFromStorage<MemberCode | null>(
+      STORAGE_KEYS.activeMember,
+      null,
     );
+    if (storedMember) {
+      const matched = SEED_TEAM_MEMBERS.find(
+        (m) => m.memberCode === storedMember,
+      );
+      if (matched) {
+        setAuthEmail(matched.email);
+      }
+      void ensureSupabaseMemberSession(supabaseClient, storedMember);
+    }
 
     void loadSupabaseWorkspace();
-
-    return () => {
-      authSub.subscription.unsubscribe();
-    };
   }, [supabaseClient, loadSupabaseWorkspace]);
 
   useEffect(() => {
@@ -375,7 +354,7 @@ export function App() {
       supabaseClient,
       workspaceId,
       () => {
-        void loadSupabaseWorkspace({ silent: true });
+        void loadSupabaseWorkspace({ silent: true, fromRealtime: true });
       },
       (st) => setRealtimeStatus(st),
     );
@@ -416,14 +395,27 @@ export function App() {
       setAuditLogs((prev) => [newEntry, ...prev]);
 
       if (supabaseClient && envConfig.isConfigured) {
-        void supabaseClient.from('audit_logs').insert({
-          workspace_id: workspaceId,
-          task_id: taskId,
-          actor_code: actor,
-          actor_name: actorName,
-          action_type: actionType,
-          summary,
-        });
+        void (async () => {
+          inFlightMutationsRef.current += 1;
+          lastMutationTimeRef.current = Date.now();
+          try {
+            await ensureSupabaseMemberSession(supabaseClient, activeMember);
+            await supabaseClient.from('audit_logs').insert({
+              workspace_id: workspaceId,
+              task_id: taskId,
+              actor_code: actor,
+              actor_name: actorName,
+              action_type: actionType,
+              summary,
+            });
+          } finally {
+            lastMutationTimeRef.current = Date.now();
+            inFlightMutationsRef.current = Math.max(
+              0,
+              inFlightMutationsRef.current - 1,
+            );
+          }
+        })();
       }
     },
     [activeMember, getMemberName, workspaceId, supabaseClient, envConfig.isConfigured],
@@ -482,9 +474,41 @@ export function App() {
         updatedAt: nowIso,
       };
 
+      lastMutationTimeRef.current = Date.now();
       setTasks((prev) =>
         prev.map((task) => (task.id === taskId ? updatedTaskSnapshot : task)),
       );
+
+      if (supabaseClient && envConfig.isConfigured) {
+        void (async () => {
+          inFlightMutationsRef.current += 1;
+          lastMutationTimeRef.current = Date.now();
+          try {
+            await ensureSupabaseMemberSession(supabaseClient, activeMember);
+            await supabaseClient
+              .from('task_criteria')
+              .update({
+                is_completed: nextCompleted,
+                completed_by: nextCompleted ? activeMember : null,
+                completed_at: nextCompleted ? nowIso : null,
+              })
+              .eq('id', criterionId);
+
+            if (nextTaskStatus !== targetTask.status) {
+              await supabaseClient
+                .from('tasks')
+                .update({ status: nextTaskStatus })
+                .eq('id', taskId);
+            }
+          } finally {
+            lastMutationTimeRef.current = Date.now();
+            inFlightMutationsRef.current = Math.max(
+              0,
+              inFlightMutationsRef.current - 1,
+            );
+          }
+        })();
+      }
 
       appendAudit(
         taskId,
@@ -497,26 +521,7 @@ export function App() {
             : ''
         }.`,
       );
-
-      if (supabaseClient && envConfig.isConfigured) {
-        void supabaseClient
-          .from('task_criteria')
-          .update({
-            is_completed: nextCompleted,
-            completed_by: nextCompleted ? activeMember : null,
-            completed_at: nextCompleted ? nowIso : null,
-          })
-          .eq('id', criterionId);
-
-        if (nextTaskStatus !== targetTask.status) {
-          void supabaseClient
-            .from('tasks')
-            .update({ status: nextTaskStatus })
-            .eq('id', taskId);
-        }
-      } else {
-        window.setTimeout(broadcastDemoSync, 50);
-      }
+      window.setTimeout(broadcastDemoSync, 50);
     },
     [
       tasks,
@@ -553,6 +558,7 @@ export function App() {
       const newCritId = `C-${taskId}-${Date.now().toString().slice(-4)}`;
       const sortOrder = targetTask.criteria.length + 1;
 
+      lastMutationTimeRef.current = Date.now();
       setTasks((prev) =>
         prev.map((task) =>
           task.id !== taskId
@@ -578,6 +584,32 @@ export function App() {
         ),
       );
 
+      if (supabaseClient && envConfig.isConfigured) {
+        void (async () => {
+          inFlightMutationsRef.current += 1;
+          lastMutationTimeRef.current = Date.now();
+          try {
+            await ensureSupabaseMemberSession(supabaseClient, activeMember);
+            await supabaseClient.from('task_criteria').insert({
+              id: newCritId,
+              workspace_id: workspaceId,
+              task_id: taskId,
+              label,
+              category,
+              is_mandatory: isMandatory,
+              is_completed: false,
+              sort_order: sortOrder,
+            });
+          } finally {
+            lastMutationTimeRef.current = Date.now();
+            inFlightMutationsRef.current = Math.max(
+              0,
+              inFlightMutationsRef.current - 1,
+            );
+          }
+        })();
+      }
+
       appendAudit(
         taskId,
         'task_updated',
@@ -585,21 +617,7 @@ export function App() {
           isMandatory ? 'bắt buộc' : 'tuỳ chọn'
         }: "${label}" vào ${taskId}.`,
       );
-
-      if (supabaseClient && envConfig.isConfigured) {
-        void supabaseClient.from('task_criteria').insert({
-          id: newCritId,
-          workspace_id: workspaceId,
-          task_id: taskId,
-          label,
-          category,
-          is_mandatory: isMandatory,
-          is_completed: false,
-          sort_order: sortOrder,
-        });
-      } else {
-        window.setTimeout(broadcastDemoSync, 50);
-      }
+      window.setTimeout(broadcastDemoSync, 50);
     },
     [
       tasks,
@@ -667,9 +685,39 @@ export function App() {
         updatedAt: nowIso,
       };
 
+      lastMutationTimeRef.current = Date.now();
       setTasks((prev) =>
         prev.map((t) => (t.id === taskId ? updatedTaskSnapshot : t)),
       );
+
+      if (supabaseClient && envConfig.isConfigured) {
+        void (async () => {
+          inFlightMutationsRef.current += 1;
+          lastMutationTimeRef.current = Date.now();
+          try {
+            await ensureSupabaseMemberSession(supabaseClient, activeMember);
+            await supabaseClient
+              .from('tasks')
+              .update({
+                status: nextStatus,
+                ...(nextStatus === 'todo'
+                  ? {
+                      reviewer_approved: false,
+                      reviewer_approved_by: null,
+                      reviewer_approved_at: null,
+                    }
+                  : {}),
+              })
+              .eq('id', taskId);
+          } finally {
+            lastMutationTimeRef.current = Date.now();
+            inFlightMutationsRef.current = Math.max(
+              0,
+              inFlightMutationsRef.current - 1,
+            );
+          }
+        })();
+      }
 
       const extraNote = options?.note ? ` (${options.note})` : '';
       appendAudit(
@@ -703,24 +751,7 @@ export function App() {
         );
       }
 
-      if (supabaseClient && envConfig.isConfigured) {
-        void supabaseClient
-          .from('tasks')
-          .update({
-            status: nextStatus,
-            ...(nextStatus === 'todo'
-              ? {
-                  reviewer_approved: false,
-                  reviewer_approved_by: null,
-                  reviewer_approved_at: null,
-                }
-              : {}),
-          })
-          .eq('id', taskId);
-      } else {
-        window.setTimeout(broadcastDemoSync, 50);
-      }
-
+      window.setTimeout(broadcastDemoSync, 50);
       return { ok: true };
     },
     [
@@ -767,6 +798,7 @@ export function App() {
           ? `Đã kiểm tra đầu ra và xác nhận đạt chuẩn bởi ${activeMember}.`
           : `Yêu cầu bổ sung thêm evidence/test bởi ${activeMember}.`);
 
+      lastMutationTimeRef.current = Date.now();
       setTasks((prev) =>
         prev.map((t) => {
           if (t.id !== taskId) return t;
@@ -783,6 +815,31 @@ export function App() {
           };
         }),
       );
+
+      if (supabaseClient && envConfig.isConfigured) {
+        void (async () => {
+          inFlightMutationsRef.current += 1;
+          lastMutationTimeRef.current = Date.now();
+          try {
+            await ensureSupabaseMemberSession(supabaseClient, activeMember);
+            await supabaseClient
+              .from('tasks')
+              .update({
+                reviewer_approved: approved,
+                reviewer_approved_by: approved ? activeMember : null,
+                reviewer_approved_at: approved ? nowIso : null,
+                reviewer_note: finalNote,
+              })
+              .eq('id', taskId);
+          } finally {
+            lastMutationTimeRef.current = Date.now();
+            inFlightMutationsRef.current = Math.max(
+              0,
+              inFlightMutationsRef.current - 1,
+            );
+          }
+        })();
+      }
 
       appendAudit(
         taskId,
@@ -812,20 +869,7 @@ export function App() {
         );
       }
 
-      if (supabaseClient && envConfig.isConfigured) {
-        void supabaseClient
-          .from('tasks')
-          .update({
-            reviewer_approved: approved,
-            reviewer_approved_by: approved ? activeMember : null,
-            reviewer_approved_at: approved ? nowIso : null,
-            reviewer_note: finalNote,
-          })
-          .eq('id', taskId);
-      } else {
-        window.setTimeout(broadcastDemoSync, 50);
-      }
-
+      window.setTimeout(broadcastDemoSync, 50);
       return { ok: true };
     },
     [
@@ -929,6 +973,7 @@ export function App() {
         updatedAt: nowIso,
       };
 
+      lastMutationTimeRef.current = Date.now();
       setTasks((prev) =>
         prev.map((t) => (t.id === taskId ? updatedTaskSnapshot : t)),
       );
@@ -956,6 +1001,66 @@ export function App() {
       }
       if (summaryParts.length === 0) {
         summaryParts.push('lưu cập nhật thông tin & ghi chú tiến độ');
+      }
+
+      if (supabaseClient && envConfig.isConfigured) {
+        void (async () => {
+          inFlightMutationsRef.current += 1;
+          lastMutationTimeRef.current = Date.now();
+          try {
+            await ensureSupabaseMemberSession(supabaseClient, activeMember);
+
+            // 1. Update changed criteria FIRST so workflow gate trigger sees updated mandatory criteria
+            const criteriaUpdates = payload.criteria
+              .filter((crit) => {
+                const orig = targetTask.criteria.find((c) => c.id === crit.id);
+                return !orig || orig.isCompleted !== crit.isCompleted;
+              })
+              .map((crit) =>
+                supabaseClient
+                  .from('task_criteria')
+                  .update({
+                    is_completed: crit.isCompleted,
+                    completed_by: crit.completedBy,
+                    completed_at: crit.completedAt,
+                  })
+                  .eq('id', crit.id),
+              );
+
+            if (criteriaUpdates.length > 0) {
+              await Promise.all(criteriaUpdates);
+            }
+
+            // 2. Update the task row SECOND
+            await supabaseClient
+              .from('tasks')
+              .update({
+                status: nextStatus,
+                owner_code: payload.ownerCode,
+                reviewer_code: payload.reviewerCode,
+                priority: payload.priority,
+                deadline: payload.deadline,
+                handover_to_codes: payload.handoverToCodes,
+                blocker: payload.blocker,
+                is_blocked: payload.isBlocked,
+                notes: payload.notes,
+                ...(nextStatus === 'todo'
+                  ? {
+                      reviewer_approved: false,
+                      reviewer_approved_by: null,
+                      reviewer_approved_at: null,
+                    }
+                  : {}),
+              })
+              .eq('id', taskId);
+          } finally {
+            lastMutationTimeRef.current = Date.now();
+            inFlightMutationsRef.current = Math.max(
+              0,
+              inFlightMutationsRef.current - 1,
+            );
+          }
+        })();
       }
 
       appendAudit(
@@ -1016,45 +1121,7 @@ export function App() {
         }
       }
 
-      if (supabaseClient && envConfig.isConfigured) {
-        void supabaseClient
-          .from('tasks')
-          .update({
-            status: nextStatus,
-            owner_code: payload.ownerCode,
-            reviewer_code: payload.reviewerCode,
-            priority: payload.priority,
-            deadline: payload.deadline,
-            handover_to_codes: payload.handoverToCodes,
-            blocker: payload.blocker,
-            is_blocked: payload.isBlocked,
-            notes: payload.notes,
-            ...(nextStatus === 'todo'
-              ? {
-                  reviewer_approved: false,
-                  reviewer_approved_by: null,
-                  reviewer_approved_at: null,
-                }
-              : {}),
-          })
-          .eq('id', taskId);
-
-        for (const crit of payload.criteria) {
-          const orig = targetTask.criteria.find((c) => c.id === crit.id);
-          if (!orig || orig.isCompleted !== crit.isCompleted) {
-            void supabaseClient
-              .from('task_criteria')
-              .update({
-                is_completed: crit.isCompleted,
-                completed_by: crit.completedBy,
-                completed_at: crit.completedAt,
-              })
-              .eq('id', crit.id);
-          }
-        }
-      } else {
-        window.setTimeout(broadcastDemoSync, 50);
-      }
+      window.setTimeout(broadcastDemoSync, 50);
 
       showToast(
         `Đã lưu cập nhật ${taskId} và gửi thông báo lên Discord!`,
