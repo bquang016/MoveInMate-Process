@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Bot,
@@ -9,6 +9,8 @@ import {
   History,
   Lock,
   Plus,
+  RotateCcw,
+  Save,
   Send,
   ShieldAlert,
   ShieldCheck,
@@ -26,6 +28,7 @@ import type {
   AuditLogItem,
   CriterionCategory,
   MemberCode,
+  TaskCriterion,
   TaskPriority,
   TaskStatus,
   TeamMember,
@@ -39,42 +42,32 @@ interface TaskDetailModalProps {
   auditLogs: AuditLogItem[];
   activeMember: MemberCode | null;
   onClose: () => void;
-  onToggleCriterion: (taskId: string, criterionId: string) => void;
   onAddCriterion: (
     taskId: string,
     label: string,
     category: CriterionCategory,
     isMandatory: boolean,
   ) => void;
-  onChangeStatus: (
-    taskId: string,
-    nextStatus: TaskStatus,
-    options?: { confirmIncompleteForReview?: boolean; note?: string },
-  ) => { ok: boolean; message?: string; requiresConfirmation?: boolean };
   onReviewerDecision: (
     taskId: string,
     approved: boolean,
     note: string,
   ) => { ok: boolean; message?: string };
-  onUpdateTaskFields: (
+  onSaveTaskDetail: (
     taskId: string,
-    updates: Partial<
-      Pick<
-        TrackerTask,
-        | 'title'
-        | 'description'
-        | 'deliverableSummary'
-        | 'ownerCode'
-        | 'reviewerCode'
-        | 'handoverToCodes'
-        | 'handoverCondition'
-        | 'priority'
-        | 'deadline'
-        | 'blocker'
-        | 'isBlocked'
-        | 'notes'
-      >
-    >,
+    payload: {
+      status: TaskStatus;
+      criteria: TaskCriterion[];
+      ownerCode: MemberCode;
+      reviewerCode: MemberCode;
+      priority: TaskPriority;
+      deadline: string;
+      handoverToCodes: MemberCode[];
+      blocker: string;
+      isBlocked: boolean;
+      notes: string;
+      confirmIncompleteForReview?: boolean;
+    },
   ) => { ok: boolean; message?: string };
 }
 
@@ -102,20 +95,16 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   auditLogs,
   activeMember,
   onClose,
-  onToggleCriterion,
   onAddCriterion,
-  onChangeStatus,
   onReviewerDecision,
-  onUpdateTaskFields,
+  onSaveTaskDetail,
 }) => {
-  const progress = calculateTaskProgress(task);
-  const overdue = isTaskOverdue(task);
-  const editPerm = canMemberPerformAction(task, activeMember, 'edit_task');
-  const reviewPerm = canMemberPerformAction(
-    task,
-    activeMember,
-    'approve_review',
+  // Draft state inside modal — Only saved & sent to Discord when user clicks "Lưu cập nhật Task"
+  const [draftStatus, setDraftStatus] = useState<TaskStatus>(task.status);
+  const [draftCriteria, setDraftCriteria] = useState<TaskCriterion[]>(
+    task.criteria,
   );
+  const [confirmedEarlyReview, setConfirmedEarlyReview] = useState(false);
 
   const [reviewNoteInput, setReviewNoteInput] = useState(
     task.reviewerNote || '',
@@ -143,56 +132,209 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
   const [pendingReviewConfirm, setPendingReviewConfirm] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{
-    type: 'error' | 'success' | 'warning';
+    type: 'error' | 'success' | 'warning' | 'info';
     text: string;
   } | null>(null);
 
+  const draftTask: TrackerTask = useMemo(
+    () => ({
+      ...task,
+      status: draftStatus,
+      criteria: draftCriteria,
+      ownerCode: ownerInput,
+      reviewerCode: reviewerInput,
+      priority: priorityInput,
+      deadline: deadlineInput ? `${deadlineInput}T17:00:00Z` : task.deadline,
+      handoverToCodes: handoverToInput,
+      blocker: blockerInput.trim(),
+      isBlocked: blockerInput.trim().length > 0,
+      notes: notesInput.trim(),
+    }),
+    [
+      task,
+      draftStatus,
+      draftCriteria,
+      ownerInput,
+      reviewerInput,
+      priorityInput,
+      deadlineInput,
+      handoverToInput,
+      blockerInput,
+      notesInput,
+    ],
+  );
+
+  const progress = calculateTaskProgress(draftTask);
+  const overdue = isTaskOverdue(draftTask);
+  const editPerm = canMemberPerformAction(task, activeMember, 'edit_task');
+  const reviewPerm = canMemberPerformAction(
+    task,
+    activeMember,
+    'approve_review',
+  );
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (draftStatus !== task.status) return true;
+    if (ownerInput !== task.ownerCode) return true;
+    if (reviewerInput !== task.reviewerCode) return true;
+    if (priorityInput !== task.priority) return true;
+    if (deadlineInput !== task.deadline.slice(0, 10)) return true;
+    if (blockerInput.trim() !== task.blocker.trim()) return true;
+    if (notesInput.trim() !== task.notes.trim()) return true;
+    if (
+      handoverToInput.join(',') !== task.handoverToCodes.join(',')
+    ) {
+      return true;
+    }
+    if (draftCriteria.length !== task.criteria.length) return true;
+    for (let i = 0; i < draftCriteria.length; i += 1) {
+      if (draftCriteria[i].isCompleted !== task.criteria[i]?.isCompleted) {
+        return true;
+      }
+    }
+    return false;
+  }, [
+    draftStatus,
+    task,
+    ownerInput,
+    reviewerInput,
+    priorityInput,
+    deadlineInput,
+    blockerInput,
+    notesInput,
+    handoverToInput,
+    draftCriteria,
+  ]);
+
   const taskAuditLogs = auditLogs.filter((log) => log.taskId === task.id);
 
+  // Draft toggle criterion inside modal (does NOT save or notify Discord until user clicks Lưu)
+  const handleDraftToggleCriterion = (criterionId: string) => {
+    if (!editPerm.allowed) return;
+    setFeedbackMessage(null);
+    const nowIso = new Date().toISOString();
+
+    setDraftCriteria((prev) => {
+      const target = prev.find((c) => c.id === criterionId);
+      if (!target) return prev;
+      const nextCompleted = !target.isCompleted;
+      const updated = prev.map((c) =>
+        c.id === criterionId
+          ? {
+              ...c,
+              isCompleted: nextCompleted,
+              completedBy: nextCompleted ? activeMember : null,
+              completedAt: nextCompleted ? nowIso : null,
+            }
+          : c,
+      );
+
+      const allUnchecked = updated.every((c) => !c.isCompleted);
+      if (draftStatus === 'done' && !nextCompleted && target.isMandatory) {
+        setDraftStatus('review');
+      } else if (draftStatus === 'todo' && nextCompleted) {
+        setDraftStatus('in_progress');
+      } else if (draftStatus === 'in_progress' && !nextCompleted && allUnchecked) {
+        setDraftStatus('todo');
+      }
+
+      return updated;
+    });
+  };
+
+  // Draft status selection inside modal (does NOT save or notify Discord until user clicks Lưu)
   const handleStatusButtonClick = (targetStatus: TaskStatus) => {
     setFeedbackMessage(null);
-    const check = validateStatusTransition(task, targetStatus, activeMember);
+    const check = validateStatusTransition(
+      draftTask,
+      targetStatus,
+      activeMember,
+    );
     if (!check.allowed && check.requiresConfirmation) {
       setPendingReviewConfirm(true);
       setFeedbackMessage({
         type: 'warning',
         text:
           check.reason ||
-          'Còn tiêu chí bắt buộc chưa hoàn thành. Xác nhận gửi Review sớm?',
+          'Còn tiêu chí bắt buộc chưa hoàn thành. Xác nhận chọn trạng thái Review sớm?',
       });
       return;
     }
 
-    const res = onChangeStatus(task.id, targetStatus);
-    if (!res.ok) {
+    if (!check.allowed) {
       setFeedbackMessage({
         type: 'error',
-        text: res.message || 'Không thể chuyển trạng thái.',
+        text: check.reason || 'Không đủ điều kiện chuyển sang trạng thái này.',
       });
-    } else {
-      setPendingReviewConfirm(false);
-      setFeedbackMessage({
-        type: 'success',
-        text: `Đã cập nhật trạng thái sang ${STATUS_LABELS[targetStatus]}.`,
-      });
+      return;
     }
+
+    setPendingReviewConfirm(false);
+    setDraftStatus(targetStatus);
+    setFeedbackMessage({
+      type: 'info',
+      text: `Đã chọn trạng thái "${STATUS_LABELS[targetStatus]}" (Bản nháp). Hãy bấm "Lưu cập nhật Task" để lưu và gửi thông báo Discord.`,
+    });
   };
 
   const handleConfirmEarlyReview = () => {
-    const res = onChangeStatus(task.id, 'review', {
-      confirmIncompleteForReview: true,
-      note: 'Chuyển sang Review sớm có xác nhận cảnh báo thiếu tiêu chí bắt buộc.',
-    });
     setPendingReviewConfirm(false);
+    setConfirmedEarlyReview(true);
+    setDraftStatus('review');
+    setFeedbackMessage({
+      type: 'info',
+      text: 'Đã chọn trạng thái Review sớm (Bản nháp). Hãy bấm "Lưu cập nhật Task" để lưu và gửi thông báo Discord.',
+    });
+  };
+
+  const handleResetDraft = () => {
+    setDraftStatus(task.status);
+    setDraftCriteria(task.criteria);
+    setOwnerInput(task.ownerCode);
+    setReviewerInput(task.reviewerCode);
+    setPriorityInput(task.priority);
+    setDeadlineInput(task.deadline.slice(0, 10));
+    setHandoverToInput(task.handoverToCodes);
+    setBlockerInput(task.blocker || '');
+    setNotesInput(task.notes || '');
+    setPendingReviewConfirm(false);
+    setFeedbackMessage({
+      type: 'info',
+      text: 'Đã khôi phục lại trạng thái ban đầu trước khi chỉnh sửa.',
+    });
+  };
+
+  const handleSaveAllChanges = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setFeedbackMessage(null);
+
+    const nextIsoDeadline = deadlineInput
+      ? `${deadlineInput}T17:00:00Z`
+      : task.deadline;
+
+    const res = onSaveTaskDetail(task.id, {
+      status: draftStatus,
+      criteria: draftCriteria,
+      ownerCode: ownerInput,
+      reviewerCode: reviewerInput,
+      priority: priorityInput,
+      deadline: nextIsoDeadline,
+      handoverToCodes: handoverToInput,
+      blocker: blockerInput.trim(),
+      isBlocked: blockerInput.trim().length > 0,
+      notes: notesInput.trim(),
+      confirmIncompleteForReview: confirmedEarlyReview,
+    });
+
     if (res.ok) {
       setFeedbackMessage({
         type: 'success',
-        text: 'Đã chuyển sang Review (kèm cảnh báo thiếu tiêu chí bắt buộc trong audit log).',
+        text: 'Đã lưu cập nhật Task thành công và đẩy thông báo sang Discord!',
       });
     } else {
       setFeedbackMessage({
         type: 'error',
-        text: res.message || 'Không thể chuyển trạng thái.',
+        text: res.message || 'Không thể lưu cập nhật task.',
       });
     }
   };
@@ -215,34 +357,6 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     }
   };
 
-  const handleSaveMetadata = (e: React.FormEvent) => {
-    e.preventDefault();
-    const nextIsoDeadline = deadlineInput
-      ? `${deadlineInput}T17:00:00Z`
-      : task.deadline;
-    const res = onUpdateTaskFields(task.id, {
-      ownerCode: ownerInput,
-      reviewerCode: reviewerInput,
-      priority: priorityInput,
-      deadline: nextIsoDeadline,
-      handoverToCodes: handoverToInput,
-      blocker: blockerInput.trim(),
-      isBlocked: blockerInput.trim().length > 0,
-      notes: notesInput.trim(),
-    });
-    if (res.ok) {
-      setFeedbackMessage({
-        type: 'success',
-        text: 'Đã lưu thông tin phân công, deadline, blocker và ghi chú vào Audit Log.',
-      });
-    } else {
-      setFeedbackMessage({
-        type: 'error',
-        text: res.message || 'Không thể cập nhật task.',
-      });
-    }
-  };
-
   const handleAddCriterionSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCriterionLabel.trim()) return;
@@ -252,6 +366,18 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       newCriterionCategory,
       newCriterionMandatory,
     );
+    const newCrit: TaskCriterion = {
+      id: `C-${task.id}-${Date.now().toString().slice(-4)}`,
+      taskId: task.id,
+      label: newCriterionLabel.trim(),
+      category: newCriterionCategory,
+      isMandatory: newCriterionMandatory,
+      isCompleted: false,
+      completedBy: null,
+      completedAt: null,
+      sortOrder: draftCriteria.length + 1,
+    };
+    setDraftCriteria((prev) => [...prev, newCrit]);
     setNewCriterionLabel('');
     setFeedbackMessage({
       type: 'success',
@@ -281,8 +407,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           <div>
             <div className="modal-badges">
               <span className="badge badge-code">{task.id}</span>
-              <span className={`badge badge-priority-${task.priority.toLowerCase()}`}>
-                {task.priority}
+              <span
+                className={`badge badge-priority-${priorityInput.toLowerCase()}`}
+              >
+                {priorityInput}
               </span>
               <span className="badge badge-slice">{task.moduleSlice}</span>
               <span className="badge badge-day">{task.dayPhase}</span>
@@ -291,9 +419,14 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   <Clock size={13} /> Quá hạn
                 </span>
               )}
-              {(task.isBlocked || task.blocker.trim().length > 0) && (
+              {blockerInput.trim().length > 0 && (
                 <span className="badge badge-danger">
                   <AlertTriangle size={13} /> Đang bị Blocker
+                </span>
+              )}
+              {hasUnsavedChanges && (
+                <span className="badge badge-unsaved">
+                  ● Có thay đổi chưa lưu
                 </span>
               )}
             </div>
@@ -326,7 +459,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     className="btn btn-warning btn-sm"
                     onClick={handleConfirmEarlyReview}
                   >
-                    Xác nhận vẫn gửi Review
+                    Xác nhận vẫn chọn Review
                   </button>
                   <button
                     type="button"
@@ -337,6 +470,33 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   </button>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Unsaved Changes Quick Save Bar */}
+          {editPerm.allowed && hasUnsavedChanges && (
+            <div className="unsaved-save-bar">
+              <span>
+                💡 Bạn vừa thay đổi trạng thái / checklist / thông tin task.
+                Hệ thống <strong>chỉ lưu và đẩy thông báo Discord</strong> khi
+                bạn bấm <strong>Lưu cập nhật Task</strong>.
+              </span>
+              <div className="unsaved-save-actions">
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={handleResetDraft}
+                >
+                  <RotateCcw size={14} /> Huỷ thay đổi
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => handleSaveAllChanges()}
+                >
+                  <Save size={14} /> Lưu cập nhật Task
+                </button>
+              </div>
             </div>
           )}
 
@@ -359,15 +519,17 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   <span className="ai-title">
                     <Bot size={16} /> MoveInMate AI Copilot
                   </span>
-                  <span className={`confidence-pill conf-${task.aiConfidence}`}>
+                  <span
+                    className={`confidence-pill conf-${task.aiConfidence}`}
+                  >
                     Confidence: {task.aiConfidence.toUpperCase()}
                   </span>
                 </div>
                 <p className="ai-suggestion-text">{task.aiSuggestion}</p>
                 <small className="ai-disclaimer">
-                  <Sparkles size={12} /> Minh bạch AI: AI chỉ tóm tắt & gợi ý; mọi
-                  thay đổi trạng thái và phê duyệt Done bắt buộc thành viên xác
-                  nhận kèm Audit Log.
+                  <Sparkles size={12} /> Minh bạch AI: AI chỉ tóm tắt & gợi ý;
+                  mọi thay đổi trạng thái và phê duyệt Done bắt buộc thành viên
+                  xác nhận kèm Audit Log.
                 </small>
               </div>
             </div>
@@ -379,10 +541,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               <div>
                 <h3>Trạng thái & Cổng kiểm soát chất lượng (Quality Gate)</h3>
                 <p className="muted-text">
-                  Quy tắc: Chuyển <strong>Review</strong> cần hoàn thành đủ tiêu
-                  chí bắt buộc (hoặc xác nhận cảnh báo). Chuyển{' '}
-                  <strong>Done</strong> bắt buộc <strong>100% tiêu chí bắt buộc</strong>{' '}
-                  + <strong>Reviewer ({task.reviewerCode}) xác nhận Approve</strong>.
+                  Chọn trạng thái bên dưới rồi bấm{' '}
+                  <strong>Lưu cập nhật Task</strong> để áp dụng và gửi thông báo
+                  Discord. Chuyển <strong>Done</strong> bắt buộc{' '}
+                  <strong>100% tiêu chí bắt buộc</strong> +{' '}
+                  <strong>Reviewer ({task.reviewerCode}) xác nhận Approve</strong>.
                 </p>
               </div>
               <div className="progress-pill-large">
@@ -401,7 +564,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             >
               {(['todo', 'in_progress', 'review', 'done'] as TaskStatus[]).map(
                 (st) => {
-                  const isCurrent = task.status === st;
+                  const isCurrent = draftStatus === st;
                   return (
                     <button
                       key={st}
@@ -500,12 +663,13 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 {progress.totalCount})
               </h3>
               <span className="muted-text">
-                Tick/untick tự động tính lại % hoàn thành của task và thành viên
+                Tick/untick các tiêu chí rồi bấm{' '}
+                <strong>Lưu cập nhật Task</strong> để lưu & thông báo
               </span>
             </div>
 
             <ul className="criteria-list">
-              {task.criteria.map((item) => (
+              {draftCriteria.map((item) => (
                 <li
                   key={item.id}
                   className={`criterion-row ${
@@ -517,7 +681,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                       type="checkbox"
                       checked={item.isCompleted}
                       disabled={!editPerm.allowed}
-                      onChange={() => onToggleCriterion(task.id, item.id)}
+                      onChange={() => handleDraftToggleCriterion(item.id)}
                     />
                     <span className="criterion-text">{item.label}</span>
                   </label>
@@ -589,7 +753,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           {/* Assignment, Handover, Dependencies & Blocker Form */}
           <section className="detail-section">
             <div className="detail-grid-2">
-              <form className="metadata-form" onSubmit={handleSaveMetadata}>
+              <form className="metadata-form" onSubmit={handleSaveAllChanges}>
                 <h3>Phân công, Bàn giao, Deadline & Blocker</h3>
                 <div className="form-row-2">
                   <label>
@@ -636,7 +800,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                         setPriorityInput(e.target.value as TaskPriority)
                       }
                     >
-                      <option value="P0">P0 · Chặn luồng chính (Critical)</option>
+                      <option value="P0">
+                        P0 · Chặn luồng chính (Critical)
+                      </option>
                       <option value="P1">P1 · Quan trọng (High)</option>
                       <option value="P2">P2 · Hoàn thiện (Normal)</option>
                     </select>
@@ -675,7 +841,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 </div>
 
                 <label>
-                  <span>Blocker / Vướng mắc hiện tại (Để trống nếu không bị chặn)</span>
+                  <span>
+                    Blocker / Vướng mắc hiện tại (Để trống nếu không bị chặn)
+                  </span>
                   <input
                     type="text"
                     value={blockerInput}
@@ -696,9 +864,20 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 </label>
 
                 {editPerm.allowed && (
-                  <button type="submit" className="btn btn-primary">
-                    Lưu cập nhật Task
-                  </button>
+                  <div className="modal-save-footer">
+                    {hasUnsavedChanges && (
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        onClick={handleResetDraft}
+                      >
+                        <RotateCcw size={15} /> Huỷ thay đổi
+                      </button>
+                    )}
+                    <button type="submit" className="btn btn-primary">
+                      <Save size={15} /> Lưu cập nhật Task
+                    </button>
+                  </div>
                 )}
               </form>
 
@@ -710,7 +889,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                   </h3>
                   {task.dependencies.length === 0 ? (
                     <p className="muted-text">
-                      Task độc lập — có thể khởi chạy ngay với dữ liệu mock/fixture.
+                      Task độc lập — có thể khởi chạy ngay với dữ liệu
+                      mock/fixture.
                     </p>
                   ) : (
                     <ul className="deps-list">
@@ -741,10 +921,13 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
                 <div className="history-card">
                   <h3>
-                    <History size={16} /> Lịch sử cập nhật & Audit ({taskAuditLogs.length})
+                    <History size={16} /> Lịch sử cập nhật & Audit (
+                    {taskAuditLogs.length})
                   </h3>
                   {taskAuditLogs.length === 0 ? (
-                    <p className="muted-text">Chưa có bản ghi thay đổi cho task này.</p>
+                    <p className="muted-text">
+                      Chưa có bản ghi thay đổi cho task này.
+                    </p>
                   ) : (
                     <ul className="mini-audit-list">
                       {taskAuditLogs.slice(0, 6).map((log) => (
@@ -769,4 +952,3 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     </div>
   );
 };
-

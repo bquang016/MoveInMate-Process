@@ -317,6 +317,60 @@ export function buildHandoverDiscordPayload(params: {
   };
 }
 
+export function buildTaskProgressSavedDiscordPayload(params: {
+  task: TrackerTask;
+  actorCode: MemberCode;
+  actorName: string;
+  ownerName: string;
+  reviewerName: string;
+  summaryText: string;
+}): DiscordWebhookPayload {
+  const { task, actorCode, actorName, ownerName, reviewerName, summaryText } =
+    params;
+  const metrics = calculateTaskProgress(task);
+
+  return {
+    username: 'MoveInMate Tracker Bot',
+    embeds: [
+      {
+        title: `💾 [Cập nhật Task] ${actorName} đã lưu tiến độ ${task.id} (Ngày ${task.dayNumber})`,
+        description: `**${actorName}** vừa lưu cập nhật cho công việc **${task.id} · ${task.title}**.\n${summaryText}`,
+        color: 0x2563eb,
+        fields: [
+          {
+            name: '📊 Trạng thái hiện tại',
+            value: `\`${STATUS_NAMES[task.status]}\``,
+            inline: true,
+          },
+          {
+            name: '☑️ Tiến độ Checklist',
+            value: `**${metrics.percent}%** (${metrics.completedCount}/${metrics.totalCount} tiêu chí)`,
+            inline: true,
+          },
+          {
+            name: '👤 Owner / Reviewer',
+            value: `Owner: **${ownerName}**\nReviewer: **${reviewerName}**`,
+            inline: true,
+          },
+          ...(task.notes
+            ? [
+                {
+                  name: '📝 Ghi chú / Evidence',
+                  value: task.notes,
+                  inline: false,
+                },
+              ]
+            : []),
+        ],
+        footer: {
+          text: `MoveInMate AI (VHR-16) · Lưu bởi ${actorCode} (${actorName})`,
+        },
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
 export async function sendDiscordNotification(
   payload: DiscordWebhookPayload,
   options?: {

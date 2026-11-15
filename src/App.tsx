@@ -21,6 +21,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Save,
   Search,
   Send,
   ShieldAlert,
@@ -44,6 +45,7 @@ import {
   buildHandoverDiscordPayload,
   buildReviewerDecisionDiscordPayload,
   buildStatusChangeDiscordPayload,
+  buildTaskProgressSavedDiscordPayload,
   isStatusRollback,
   sendDiscordNotification,
 } from './lib/discord';
@@ -70,6 +72,7 @@ import type {
   HandoverStatus,
   MemberCode,
   ModuleSlice,
+  TaskCriterion,
   TaskPriority,
   TaskStatus,
   TeamMember,
@@ -495,26 +498,6 @@ export function App() {
         }.`,
       );
 
-      if (nextTaskStatus !== targetTask.status && activeMember) {
-        void sendDiscordNotification(
-          buildStatusChangeDiscordPayload({
-            task: updatedTaskSnapshot,
-            prevStatus: targetTask.status,
-            nextStatus: nextTaskStatus,
-            actorCode: activeMember,
-            actorName: getMemberName(activeMember),
-            ownerName: getMemberName(targetTask.ownerCode),
-            reviewerName: getMemberName(targetTask.reviewerCode),
-            note:
-              nextTaskStatus === 'todo'
-                ? `Đã bỏ tick tiêu chí "${targetCrit.label}" — Tự động hoàn tác trạng thái về Todo (Bình thường).`
-                : nextTaskStatus === 'in_progress'
-                ? `Bắt đầu tick tiêu chí "${targetCrit.label}" — Tự động chuyển sang In Progress.`
-                : `Bỏ tick tiêu chí bắt buộc "${targetCrit.label}" — Tự động chuyển từ Done về Review.`,
-          }),
-        );
-      }
-
       if (supabaseClient && envConfig.isConfigured) {
         void supabaseClient
           .from('task_criteria')
@@ -538,7 +521,6 @@ export function App() {
     [
       tasks,
       activeMember,
-      getMemberName,
       showToast,
       appendAudit,
       supabaseClient,
@@ -858,27 +840,22 @@ export function App() {
     ],
   );
 
-  // Action: Update Task Metadata / Blocker / Notes
-  const handleUpdateTaskFields = useCallback(
+  // Action: Save All Task Detail Changes (Status, Checklist, Metadata, Blocker, Notes) & Send Discord Notification ONLY on Save
+  const handleSaveTaskDetail = useCallback(
     (
       taskId: string,
-      updates: Partial<
-        Pick<
-          TrackerTask,
-          | 'title'
-          | 'description'
-          | 'deliverableSummary'
-          | 'ownerCode'
-          | 'reviewerCode'
-          | 'handoverToCodes'
-          | 'handoverCondition'
-          | 'priority'
-          | 'deadline'
-          | 'blocker'
-          | 'isBlocked'
-          | 'notes'
-        >
-      >,
+      payload: {
+        status: TaskStatus;
+        criteria: TaskCriterion[];
+        ownerCode: MemberCode;
+        reviewerCode: MemberCode;
+        handoverToCodes: MemberCode[];
+        priority: TaskPriority;
+        deadline: string;
+        blocker: string;
+        isBlocked: boolean;
+        notes: string;
+      },
     ): { ok: boolean; message?: string } => {
       const targetTask = tasks.find((t) => t.id === taskId);
       if (!targetTask) return { ok: false, message: 'Không tìm thấy task.' };
@@ -893,55 +870,196 @@ export function App() {
         return { ok: false, message: perm.reason };
       }
 
+      const candidateWithDraftCriteria: TrackerTask = {
+        ...targetTask,
+        criteria: payload.criteria,
+      };
+
+      if (payload.status !== targetTask.status) {
+        const validation = validateStatusTransition(
+          candidateWithDraftCriteria,
+          payload.status,
+          activeMember,
+          { confirmIncompleteForReview: true },
+        );
+        if (!validation.allowed) {
+          showToast(
+            validation.reason || 'Không đủ điều kiện chuyển trạng thái.',
+            'error',
+          );
+          return { ok: false, message: validation.reason };
+        }
+      }
+
+      const prevStatus = targetTask.status;
+      const nextStatus = payload.status;
+      const statusChanged = prevStatus !== nextStatus;
+      const rollback = statusChanged && isStatusRollback(prevStatus, nextStatus);
+      const blockerChanged = payload.blocker !== targetTask.blocker;
+      const prevCompletedCount = targetTask.criteria.filter(
+        (c) => c.isCompleted,
+      ).length;
+      const nextCompletedCount = payload.criteria.filter(
+        (c) => c.isCompleted,
+      ).length;
+      const criteriaChangedCount = payload.criteria.filter((c, idx) => {
+        const orig = targetTask.criteria[idx];
+        return !orig || orig.isCompleted !== c.isCompleted;
+      }).length;
+
       const nowIso = new Date().toISOString();
+      const updatedTaskSnapshot: TrackerTask = {
+        ...targetTask,
+        status: nextStatus,
+        criteria: payload.criteria,
+        ownerCode: payload.ownerCode,
+        reviewerCode: payload.reviewerCode,
+        handoverToCodes: payload.handoverToCodes,
+        priority: payload.priority,
+        deadline: payload.deadline,
+        blocker: payload.blocker,
+        isBlocked: payload.isBlocked,
+        notes: payload.notes,
+        reviewerApproved:
+          nextStatus === 'todo' ? false : targetTask.reviewerApproved,
+        reviewerApprovedBy:
+          nextStatus === 'todo' ? null : targetTask.reviewerApprovedBy,
+        reviewerApprovedAt:
+          nextStatus === 'todo' ? null : targetTask.reviewerApprovedAt,
+        updatedAt: nowIso,
+      };
+
       setTasks((prev) =>
-        prev.map((t) =>
-          t.id === taskId ? { ...t, ...updates, updatedAt: nowIso } : t,
-        ),
+        prev.map((t) => (t.id === taskId ? updatedTaskSnapshot : t)),
       );
 
-      const blockerChanged =
-        updates.blocker !== undefined && updates.blocker !== targetTask.blocker;
+      // Summary for Audit Log
+      const summaryParts: string[] = [];
+      if (statusChanged) {
+        summaryParts.push(
+          `${rollback ? 'hoàn tác' : 'chuyển'} trạng thái ${
+            STATUS_META[prevStatus].shortLabel
+          } → ${STATUS_META[nextStatus].shortLabel}`,
+        );
+      }
+      if (criteriaChangedCount > 0) {
+        summaryParts.push(
+          `cập nhật checklist (${nextCompletedCount}/${payload.criteria.length} hoàn thành)`,
+        );
+      }
+      if (blockerChanged) {
+        summaryParts.push(
+          payload.blocker
+            ? `báo Blocker "${payload.blocker}"`
+            : 'gỡ Blocker',
+        );
+      }
+      if (summaryParts.length === 0) {
+        summaryParts.push('lưu cập nhật thông tin & ghi chú tiến độ');
+      }
 
       appendAudit(
         taskId,
-        blockerChanged ? 'blocker_updated' : 'task_updated',
-        blockerChanged
-          ? updates.blocker
-            ? `${activeMember} cập nhật Blocker cho ${taskId}: "${updates.blocker}"`
-            : `${activeMember} đã gỡ Blocker cho ${taskId}.`
-          : `${activeMember} cập nhật thông tin phân công/deadline/ghi chú của ${taskId}.`,
+        statusChanged
+          ? 'status_changed'
+          : blockerChanged
+          ? 'blocker_updated'
+          : 'task_updated',
+        `${activeMember} đã bấm Lưu cập nhật ${taskId}: ${summaryParts.join(
+          ', ',
+        )}.`,
       );
 
-      if (blockerChanged && activeMember) {
-        void sendDiscordNotification(
-          buildBlockerDiscordPayload({
-            task: { ...targetTask, ...updates },
-            blockerText: updates.blocker ?? '',
-            actorCode: activeMember,
-            actorName: getMemberName(activeMember),
-          }),
-        );
+      // Send Discord notification ONLY when user explicitly saves
+      if (activeMember) {
+        if (statusChanged) {
+          void sendDiscordNotification(
+            buildStatusChangeDiscordPayload({
+              task: updatedTaskSnapshot,
+              prevStatus,
+              nextStatus,
+              actorCode: activeMember,
+              actorName: getMemberName(activeMember),
+              ownerName: getMemberName(updatedTaskSnapshot.ownerCode),
+              reviewerName: getMemberName(updatedTaskSnapshot.reviewerCode),
+              note:
+                criteriaChangedCount > 0
+                  ? `Đã lưu checklist (${nextCompletedCount}/${payload.criteria.length} mục hoàn thành)${
+                      payload.notes ? ` · Ghi chú: ${payload.notes}` : ''
+                    }`
+                  : payload.notes || undefined,
+            }),
+          );
+        } else if (blockerChanged) {
+          void sendDiscordNotification(
+            buildBlockerDiscordPayload({
+              task: updatedTaskSnapshot,
+              blockerText: payload.blocker,
+              actorCode: activeMember,
+              actorName: getMemberName(activeMember),
+            }),
+          );
+        } else {
+          void sendDiscordNotification(
+            buildTaskProgressSavedDiscordPayload({
+              task: updatedTaskSnapshot,
+              actorCode: activeMember,
+              actorName: getMemberName(activeMember),
+              ownerName: getMemberName(updatedTaskSnapshot.ownerCode),
+              reviewerName: getMemberName(updatedTaskSnapshot.reviewerCode),
+              summaryText:
+                criteriaChangedCount > 0
+                  ? `Cập nhật checklist từ ${prevCompletedCount}/${payload.criteria.length} lên ${nextCompletedCount}/${payload.criteria.length} tiêu chí hoàn thành.`
+                  : payload.notes || 'Đã lưu cập nhật thông tin tiến độ task.',
+            }),
+          );
+        }
       }
 
       if (supabaseClient && envConfig.isConfigured) {
         void supabaseClient
           .from('tasks')
           .update({
-            owner_code: updates.ownerCode ?? targetTask.ownerCode,
-            reviewer_code: updates.reviewerCode ?? targetTask.reviewerCode,
-            priority: updates.priority ?? targetTask.priority,
-            deadline: updates.deadline ?? targetTask.deadline,
-            handover_to_codes:
-              updates.handoverToCodes ?? targetTask.handoverToCodes,
-            blocker: updates.blocker ?? targetTask.blocker,
-            is_blocked: updates.isBlocked ?? targetTask.isBlocked,
-            notes: updates.notes ?? targetTask.notes,
+            status: nextStatus,
+            owner_code: payload.ownerCode,
+            reviewer_code: payload.reviewerCode,
+            priority: payload.priority,
+            deadline: payload.deadline,
+            handover_to_codes: payload.handoverToCodes,
+            blocker: payload.blocker,
+            is_blocked: payload.isBlocked,
+            notes: payload.notes,
+            ...(nextStatus === 'todo'
+              ? {
+                  reviewer_approved: false,
+                  reviewer_approved_by: null,
+                  reviewer_approved_at: null,
+                }
+              : {}),
           })
           .eq('id', taskId);
+
+        for (const crit of payload.criteria) {
+          const orig = targetTask.criteria.find((c) => c.id === crit.id);
+          if (!orig || orig.isCompleted !== crit.isCompleted) {
+            void supabaseClient
+              .from('task_criteria')
+              .update({
+                is_completed: crit.isCompleted,
+                completed_by: crit.completedBy,
+                completed_at: crit.completedAt,
+              })
+              .eq('id', crit.id);
+          }
+        }
       } else {
         window.setTimeout(broadcastDemoSync, 50);
       }
+
+      showToast(
+        `Đã lưu cập nhật ${taskId} và gửi thông báo lên Discord!`,
+        rollback ? 'info' : 'success',
+      );
 
       return { ok: true };
     },
@@ -2239,7 +2357,7 @@ export function App() {
                             className="btn btn-outline btn-sm"
                             onClick={() => setSelectedTaskId(task.id)}
                           >
-                            Chi tiết / Blocker
+                            <Save size={13} /> Chi tiết / Lưu cập nhật Task
                           </button>
                         </div>
                       </div>
@@ -2914,11 +3032,9 @@ export function App() {
           auditLogs={auditLogs}
           activeMember={activeMember}
           onClose={() => setSelectedTaskId(null)}
-          onToggleCriterion={handleToggleCriterion}
           onAddCriterion={handleAddCriterion}
-          onChangeStatus={handleChangeStatus}
           onReviewerDecision={handleReviewerDecision}
-          onUpdateTaskFields={handleUpdateTaskFields}
+          onSaveTaskDetail={handleSaveTaskDetail}
         />
       )}
 

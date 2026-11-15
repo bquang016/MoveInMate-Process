@@ -1775,6 +1775,46 @@ textarea {
   border: 1px solid #a8dfc9;
 }
 
+.alert-info {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border: 1px solid #b5c6f7;
+}
+
+.badge-unsaved {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #f59e0b;
+  font-weight: 700;
+}
+
+.unsaved-save-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border: 1.5px solid #f59e0b;
+  color: #78350f;
+  font-size: 13px;
+}
+
+.unsaved-save-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.modal-save-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .confirm-actions {
   display: flex;
   gap: 8px;
